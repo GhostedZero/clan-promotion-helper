@@ -19,7 +19,7 @@ Open the plugin's settings:
 3. **API key** (optional): raises Wise Old Man's limit from 20 to 100 lookups a minute. Ask for one on the [Wise Old Man Discord](https://wiseoldman.net/discord).
 4. **Rank requirements:** check the table matches your clan (see below).
 
-The panel shows progress while XP is being checked. A clan of about 500 members takes around 25 minutes without an API key and about 6 minutes with one. Results are saved per account, and members are only looked up again after the refresh interval (6 hours by default), so later logins are quick.
+The panel shows progress while XP is being checked. A clan of about 500 members takes around 28 minutes without an API key and about 6 minutes with one. Results are saved per account, and members are only looked up again after the refresh interval (6 hours by default), so later logins are quick.
 
 ### Faster refreshes with a Wise Old Man group (optional)
 
@@ -63,7 +63,7 @@ Admiral:20:50
 Marshal:24:75
 ```
 
-Rank names must match your clan's in-game rank titles. Members whose rank isn't in the table, such as Owner or Deputy Owner, are never suggested.
+The table above is an example ladder. Replace it with your clan's own rank titles and requirements; if a title doesn't match, those members show "Rank not in table" and are never suggested. Ranks such as Owner or Deputy Owner are normally left out of the table, so they are never suggested either.
 
 ## Display settings
 
@@ -71,6 +71,16 @@ Rank names must match your clan's in-game rank titles. Members whose rank isn't 
 - **Highlight in member list:** highlights them in Clan Settings → Members.
 - **Highlight colour**, **Max shown in panel**.
 - **Ignored players**, **Ignored target ranks:** comma-separated lists to leave out.
+
+## Privacy
+
+Wise Old Man lookups are **off by default**. When you turn them on, the plugin sends these things to [wiseoldman.net](https://wiseoldman.net), and nothing else to any server:
+
+- each clan member's **name** and the **date they joined**, so Wise Old Man can say how much XP they gained since then (one request per member, or one request for the whole group if you set a group ID);
+- your **contact name**, if you entered one, in the request's User-Agent header;
+- your **API key**, if you entered one.
+
+Like any web request, this also shows your IP address to Wise Old Man. Results are saved only on your own computer, in RuneLite's settings, and the plugin never changes anything on Wise Old Man: it only reads. The data comes from the clan list the game already shows you.
 
 ## Notes
 

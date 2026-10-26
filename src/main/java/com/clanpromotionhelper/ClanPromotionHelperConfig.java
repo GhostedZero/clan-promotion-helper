@@ -38,7 +38,7 @@ public interface ClanPromotionHelperConfig extends Config
 	@ConfigItem(
 		keyName = "enableWiseOldMan",
 		name = "Look up XP on Wise Old Man",
-		description = "Fetch each clan member's XP gained since joining from wiseoldman.net. Promotions can't be worked out without it.",
+		description = "Fetch each clan member's XP gained since joining from wiseoldman.net. This sends your clan members' names and join dates to Wise Old Man, and nothing else is sent anywhere. Promotions can't be worked out without it.",
 		warning = THIRD_PARTY_WARNING,
 		section = wiseOldManSection,
 		position = 0

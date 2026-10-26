@@ -53,8 +53,11 @@ public class ClanPromotionHelperPlugin extends Plugin
 	private static final int ROSTER_CHECK_TICKS = 3;
 	/** How often to look for members whose XP is due a refresh, unless the roster just changed (about 30 seconds) */
 	private static final int STALE_CHECK_TICKS = 50;
-	/** Spacing between lookups: just under 20 a minute without a key, 80 a minute with one */
-	private static final long DELAY_WITHOUT_KEY_MS = 3_100;
+	/**
+	 * Spacing between lookups: about 17 a minute without a key and 80 with one. Wise Old Man's limits are 20 and
+	 * 100 a minute per internet address, so this leaves room for other plugins that use it from the same address.
+	 */
+	private static final long DELAY_WITHOUT_KEY_MS = 3_500;
 	private static final long DELAY_WITH_KEY_MS = 750;
 	private static final int MAX_RETRIES = 2;
 	private static final long MANUAL_REFRESH_COOLDOWN_MS = 60_000;
@@ -139,7 +142,6 @@ public class ClanPromotionHelperPlugin extends Plugin
 	private volatile boolean fetching;
 
 	/** Every member as shown in the sidebar */
-	@Getter
 	private volatile List<PromotionRow> rows = Collections.emptyList();
 
 	/** One-line note about the last Wise Old Man group refresh; null when no group is set */
