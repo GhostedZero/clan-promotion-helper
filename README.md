@@ -2,6 +2,14 @@
 
 A RuneLite plugin for clan leaders. It works out which clan members are due a promotion from how long they've been in the clan and how much XP they've gained since joining, then lists them in an on-screen panel and a sidebar, and highlights them in the Clan Settings member list.
 
+## Screenshots
+
+The sidebar lists everyone due a promotion, with progress towards each requirement. The members shown are made up. In game, each name has the member's clan rank icon beside it in place of the round status icon used in these pictures.
+
+| Ready | Later | Failed |
+|---|---|---|
+| <img src="screenshots/ready.png" width="225" alt="Ready tab: members due a promotion"> | <img src="screenshots/later.png" width="225" alt="Later tab: members who are not ready yet"> | <img src="screenshots/failed.png" width="225" alt="Failed tab: members whose lookup failed"> |
+
 ## How it works
 
 1. **Roster.** When you log in, the plugin reads your clan's members, ranks and join dates straight from the game. Nothing needs exporting.
