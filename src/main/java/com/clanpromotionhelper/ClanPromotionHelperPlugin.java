@@ -49,8 +49,10 @@ import net.runelite.client.util.ImageUtil;
 public class ClanPromotionHelperPlugin extends Plugin
 {
 	private static final String CACHE_KEY = "xpCache";
-	/** How often the roster is re-read from clan settings (about 6 seconds) */
-	private static final int ROSTER_CHECK_TICKS = 10;
+	/** How often the roster is re-read from clan settings (about 1.8 seconds) */
+	private static final int ROSTER_CHECK_TICKS = 3;
+	/** How often to look for members whose XP is due a refresh, unless the roster just changed (about 30 seconds) */
+	private static final int STALE_CHECK_TICKS = 50;
 	/** Spacing between lookups: just under 20 a minute without a key, 80 a minute with one */
 	private static final long DELAY_WITHOUT_KEY_MS = 3_100;
 	private static final long DELAY_WITH_KEY_MS = 750;
@@ -123,6 +125,10 @@ public class ClanPromotionHelperPlugin extends Plugin
 	@Getter
 	private volatile Map<String, String> candidateTargets = Collections.emptyMap();
 
+	/** Current rank title of each member in {@link #candidateTargets}, keyed the same way */
+	@Getter
+	private volatile Map<String, String> candidateCurrentRanks = Collections.emptyMap();
+
 	@Getter
 	private volatile int checkedCount;
 
@@ -145,6 +151,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 	private String loadedProfileKey;
 	private int rosterHash;
 	private int ticksUntilRosterCheck;
+	private int ticksUntilStaleCheck;
 	/** Entries fetched before this time count as stale, whatever the refresh interval says */
 	private volatile long forceRefreshBefore;
 	private long lastManualRefresh;
@@ -226,7 +233,8 @@ public class ClanPromotionHelperPlugin extends Plugin
 		}
 
 		List<Member> roster = readRoster(settings);
-		if (roster.hashCode() != rosterHash)
+		boolean rosterChanged = roster.hashCode() != rosterHash;
+		if (rosterChanged)
 		{
 			rosterHash = roster.hashCode();
 			members = Collections.unmodifiableList(roster);
@@ -240,8 +248,13 @@ public class ClanPromotionHelperPlugin extends Plugin
 			recompute();
 		}
 
-		// Cheap: compares timestamps and only starts a run when someone is due a lookup
-		queueStaleMembers();
+		// Refreshes are hours apart, so there's no need to scan every member on every roster check
+		ticksUntilStaleCheck -= ROSTER_CHECK_TICKS;
+		if (rosterChanged || ticksUntilStaleCheck <= 0)
+		{
+			ticksUntilStaleCheck = STALE_CHECK_TICKS;
+			queueStaleMembers();
+		}
 	}
 
 	@Subscribe
@@ -263,6 +276,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 				{
 					stopFetching();
 				}
+				ticksUntilStaleCheck = 0;
 				break;
 			case "ignoredPlayers":
 			case "ignoredTargetRanks":
@@ -334,6 +348,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 		members = Collections.emptyList();
 		candidates = Collections.emptyList();
 		candidateTargets = Collections.emptyMap();
+		candidateCurrentRanks = Collections.emptyMap();
 		rows = Collections.emptyList();
 		groupStatus = null;
 		checkedCount = 0;
@@ -608,6 +623,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 		List<PromotionRow> allRows = new ArrayList<>();
 		List<Candidate> found = new ArrayList<>();
 		Map<String, String> targets = new HashMap<>();
+		Map<String, String> currentRanks = new HashMap<>();
 		int checked = 0;
 		int failed = 0;
 
@@ -645,6 +661,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 				{
 					found.add(new Candidate(member.getName(), member.getRank(), next));
 					targets.put(XpCache.key(member.getName()), next);
+					currentRanks.put(XpCache.key(member.getName()), member.getRank());
 				}
 			}
 
@@ -656,6 +673,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 		found.sort(Comparator.comparing(Candidate::getName, String.CASE_INSENSITIVE_ORDER));
 		candidates = Collections.unmodifiableList(found);
 		candidateTargets = Collections.unmodifiableMap(targets);
+		candidateCurrentRanks = Collections.unmodifiableMap(currentRanks);
 		rows = Collections.unmodifiableList(allRows);
 		checkedCount = checked;
 		failedCount = failed;

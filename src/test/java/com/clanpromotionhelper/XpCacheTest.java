@@ -196,4 +196,26 @@ public class XpCacheTest
 		XpCache loaded = XpCache.fromJson(cache.toJson(gson), gson);
 		assertEquals(Long.valueOf(100_000_000L), loaded.baselineFor("2006 Buffon", JOINED));
 	}
+
+	@Test
+	public void namesIgnoreLeadingTrailingAndRepeatedSeparators()
+	{
+		assertEquals("zezima x", XpCache.key("__Zezima--X__ "));
+		assertEquals("zezima x", XpCache.key("\u00A0Zezima\u00A0\u00A0X"));
+		assertEquals("a b c", XpCache.key("A_-_B   C"));
+	}
+
+	@Test
+	public void emptyAndSeparatorOnlyNamesGiveAnEmptyKey()
+	{
+		assertEquals("", XpCache.key(""));
+		assertEquals("", XpCache.key(" _-\u00A0"));
+	}
+
+	@Test
+	public void digitsAndMixedCaseAreKept()
+	{
+		assertEquals("2006 buffon", XpCache.key("2006 Buffon"));
+		assertEquals("618 ironman", XpCache.key("618_IRONMAN"));
+	}
 }

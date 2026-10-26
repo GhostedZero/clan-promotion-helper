@@ -10,6 +10,9 @@ import java.util.List;
 import java.util.Map;
 import javax.inject.Inject;
 import net.runelite.api.Client;
+import net.runelite.api.clan.ClanMember;
+import net.runelite.api.clan.ClanSettings;
+import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.ui.overlay.Overlay;
@@ -69,14 +72,23 @@ class MemberListHighlightOverlay extends Overlay
 
 		for (Widget nameWidget : textWidgets(nameColumn))
 		{
-			String name = Text.removeTags(nameWidget.getText());
-			if (!targets.containsKey(XpCache.key(name)))
+			// The name column holds every member, but only a few rows are on screen, so check that first
+			Rectangle bounds = nameWidget.getBounds();
+			if (bounds == null || !viewport.intersects(bounds))
 			{
 				continue;
 			}
 
-			Rectangle bounds = nameWidget.getBounds();
-			if (bounds == null || !viewport.intersects(bounds))
+			String name = Text.removeTags(nameWidget.getText());
+			String key = XpCache.key(name);
+			if (!targets.containsKey(key))
+			{
+				continue;
+			}
+
+			// Drop the highlight the moment the game shows a different rank, instead of waiting for the
+			// plugin's next roster read
+			if (rankHasChanged(name, plugin.getCandidateCurrentRanks().get(key)))
 			{
 				continue;
 			}
@@ -89,6 +101,20 @@ class MemberListHighlightOverlay extends Overlay
 
 		graphics.setClip(previousClip);
 		return null;
+	}
+
+	/** True if the clan's live data says this member no longer holds the rank we last saw. */
+	private boolean rankHasChanged(String name, String rankWhenChecked)
+	{
+		ClanSettings settings = client.getClanSettings();
+		if (settings == null || rankWhenChecked == null)
+		{
+			return false;
+		}
+
+		ClanMember member = settings.findMember(name);
+		ClanTitle title = member == null ? null : settings.titleForRank(member.getRank());
+		return title != null && !title.getName().trim().equalsIgnoreCase(rankWhenChecked.trim());
 	}
 
 	private static List<Widget> textWidgets(Widget parent)

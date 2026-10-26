@@ -57,8 +57,28 @@ class XpCache
 	 */
 	static String key(String rsn)
 	{
-		return rsn.replace('\u00A0', ' ').replace('_', ' ').replace('-', ' ')
-			.trim().replaceAll(" +", " ").toLowerCase(Locale.ROOT);
+		// A plain loop rather than regular expressions: this runs for every member on every roster
+		// check and every frame the member list is open
+		StringBuilder key = new StringBuilder(rsn.length());
+		boolean pendingSpace = false;
+		for (int i = 0; i < rsn.length(); i++)
+		{
+			char c = rsn.charAt(i);
+			if (c == ' ' || c == '\u00A0' || c == '_' || c == '-')
+			{
+				pendingSpace = key.length() > 0;
+			}
+			else
+			{
+				if (pendingSpace)
+				{
+					key.append(' ');
+					pendingSpace = false;
+				}
+				key.append(c);
+			}
+		}
+		return key.toString().trim().toLowerCase(Locale.ROOT);
 	}
 
 	Entry get(String rsn)

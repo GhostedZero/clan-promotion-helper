@@ -11,6 +11,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Rectangle;
+import java.awt.event.HierarchyEvent;
 import java.awt.RenderingHints;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -91,6 +92,8 @@ class PromotionPanel extends PluginPanel
 	private final JPanel list = new ViewportWidthPanel();
 	private final Timer rebuildTimer;
 	private Runnable refreshAction;
+	/** Set when new data arrived while the sidebar was closed */
+	private boolean rebuildWhenShown;
 	private String selectedTab = TABS[0];
 
 	// Only touched on the Swing thread
@@ -227,9 +230,25 @@ class PromotionPanel extends PluginPanel
 		{
 			rows = pendingRows;
 			summary = pendingSummary;
-			rebuild();
+			// Drawing up to 200 cards is wasted effort while the sidebar is closed; catch up when it opens
+			if (isShowing())
+			{
+				rebuild();
+			}
+			else
+			{
+				rebuildWhenShown = true;
+			}
 		});
 		rebuildTimer.setRepeats(false);
+		addHierarchyListener(e ->
+		{
+			if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing() && rebuildWhenShown)
+			{
+				rebuildWhenShown = false;
+				rebuild();
+			}
+		});
 
 		// Keep the "5 min ago" text current while nothing else is updating
 		ageTimer = new Timer(30_000, e -> updateLastChecked());
