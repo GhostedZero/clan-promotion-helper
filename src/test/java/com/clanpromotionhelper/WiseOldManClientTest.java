@@ -22,6 +22,39 @@ public class WiseOldManClientTest
 	}
 
 	@Test
+	public void bossKillsAreSummedIgnoringNegatives()
+	{
+		Result result = WiseOldManClient.parse(200,
+			"{\"data\":{\"skills\":{\"overall\":{\"experience\":{\"gained\":1}}},\"bosses\":{"
+				+ "\"zulrah\":{\"kills\":{\"gained\":12}},\"vorkath\":{\"kills\":{\"gained\":3}},"
+				+ "\"obor\":{\"kills\":{\"gained\":-1}},\"bryophyta\":{}}}}", null, gson);
+		assertEquals(Long.valueOf(15L), result.getBossKills());
+	}
+
+	@Test
+	public void levelsAndLifetimeKillsComeFromTheEndValues()
+	{
+		Result result = WiseOldManClient.parse(200,
+			"{\"data\":{\"skills\":{\"overall\":{\"experience\":{\"gained\":1},\"level\":{\"end\":2277}},"
+				+ "\"slayer\":{\"level\":{\"start\":98,\"end\":99}}},\"bosses\":{"
+				+ "\"tzkal_zuk\":{\"kills\":{\"gained\":0,\"end\":1}},\"obor\":{\"kills\":{\"end\":-1}}}}}", null, gson);
+		assertEquals(Integer.valueOf(99), result.getLevels().get("slayer"));
+		assertFalse(result.getLevels().containsKey("overall"));
+		assertEquals(Long.valueOf(1L), result.getKills().get("tzkal_zuk"));
+		// Below the hiscores' minimum: known boss, no countable kills
+		assertEquals(Long.valueOf(0L), result.getKills().get("obor"));
+	}
+
+	@Test
+	public void missingBossDataIsUnknownNotZero()
+	{
+		Result result = WiseOldManClient.parse(200,
+			"{\"data\":{\"skills\":{\"overall\":{\"experience\":{\"gained\":1}}}}}", null, gson);
+		assertEquals(Result.Status.OK, result.getStatus());
+		assertNull(result.getBossKills());
+	}
+
+	@Test
 	public void zeroGainedIsStillASuccess()
 	{
 		Result result = WiseOldManClient.parse(200,

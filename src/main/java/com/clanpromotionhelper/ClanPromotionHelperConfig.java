@@ -103,13 +103,42 @@ public interface ClanPromotionHelperConfig extends Config
 	@ConfigItem(
 		keyName = "rankRequirements",
 		name = "Rank requirements",
-		description = "One rank per line, lowest first, as Rank:months:XP in millions. Rank names must match your clan's in-game rank titles.",
+		description = "One rank per line, lowest first, as Rank:months:XP in millions, optionally followed by :boss kills and :AND or :OR "
+			+ "(AND needs both the XP and the kills, OR either; default AND). A 0 isn't required. Rank names must match your clan's in-game rank titles.",
 		section = ranksSection,
 		position = 0
 	)
 	default String rankRequirements()
 	{
 		return RankRules.DEFAULT_TABLE;
+	}
+
+	@ConfigItem(
+		keyName = "countFromRankChange",
+		name = "Count from last rank change",
+		description = "Count months, XP and boss kills from the member's last rank change instead of their join date. "
+			+ "The game doesn't record rank changes, so only changes the plugin has seen while you were logged in count; "
+			+ "everyone else is counted from their join date.",
+		section = ranksSection,
+		position = 1
+	)
+	default boolean countFromRankChange()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "vanityRanks",
+		name = "Vanity ranks",
+		description = "Side ranks reachable from any rank, one per line as Name: condition; condition. Conditions: "
+			+ "rank Sergeant or 6 months, level slayer 99, level all except sailing 99, kills all 12500, kills raids 50, "
+			+ "kills tzkal_zuk, sol_heredit 1. Easier to edit with the Edit rules button in the sidebar.",
+		section = ranksSection,
+		position = 2
+	)
+	default String vanityRanks()
+	{
+		return "";
 	}
 
 	@ConfigItem(

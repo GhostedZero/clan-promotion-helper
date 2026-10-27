@@ -2,6 +2,7 @@ package com.clanpromotionhelper;
 
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
@@ -62,9 +63,9 @@ class PromotionPanel extends PluginPanel
 	/** Rows drawn at once; the tabs and search box narrow a larger clan down */
 	private static final int MAX_ROWS = 200;
 	/** Colours and spacing in the style of RuneLite's other plugin panels (e.g. Flipping Utilities) */
-	private static final Color PANEL_BACKGROUND = ColorScheme.DARK_GRAY_COLOR;
-	private static final Color CARD_BACKGROUND = new Color(27, 27, 27);
-	private static final Color CARD_BORDER = ColorScheme.DARKER_GRAY_COLOR.darker();
+	static final Color PANEL_BACKGROUND = ColorScheme.DARK_GRAY_COLOR;
+	static final Color CARD_BACKGROUND = new Color(27, 27, 27);
+	static final Color CARD_BORDER = ColorScheme.DARKER_GRAY_COLOR.darker();
 	private static final String[] TABS = {"Ready", "Later", "Failed", "All"};
 
 	@Value
@@ -78,6 +79,8 @@ class PromotionPanel extends PluginPanel
 		boolean fetching;
 		/** One-line note about the last Wise Old Man group refresh, or null */
 		String groupStatus;
+		/** Rank requirement lines that were ignored, with why */
+		List<String> ruleErrors;
 	}
 
 	private final JLabel readyValue = new JLabel("0");
@@ -88,6 +91,9 @@ class PromotionPanel extends PluginPanel
 	private final JLabel lastChecked = new JLabel(" ", SwingConstants.CENTER);
 	private final Timer ageTimer;
 	private final JButton refreshButton = new JButton("Refresh now");
+	private final JButton rulesButton = new JButton("Edit rules");
+	private final CardLayout views = new CardLayout();
+	private final RulesEditorPanel rulesEditor;
 	private final IconTextField search = new IconTextField();
 	private final JPanel list = new ViewportWidthPanel();
 	private final Timer rebuildTimer;
@@ -98,17 +104,24 @@ class PromotionPanel extends PluginPanel
 
 	// Only touched on the Swing thread
 	private List<PromotionRow> rows = Collections.emptyList();
-	private Summary summary = new Summary(0, 0, 0, 0, false, false, null);
+	private Summary summary = new Summary(0, 0, 0, 0, false, false, null, Collections.emptyList());
 	private volatile List<PromotionRow> pendingRows = Collections.emptyList();
 	private volatile Summary pendingSummary = summary;
 
 	@Inject
-	PromotionPanel()
+	PromotionPanel(RulesEditorPanel rulesEditor)
 	{
 		super(false);
-		setLayout(new BorderLayout());
+		this.rulesEditor = rulesEditor;
+		setLayout(views);
 		setBackground(PANEL_BACKGROUND);
 		setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+
+		JPanel main = new JPanel(new BorderLayout());
+		main.setBackground(PANEL_BACKGROUND);
+		add(main, "list");
+		add(rulesEditor, "editor");
+		rulesEditor.setOnClose(() -> views.show(this, "list"));
 
 		JPanel header = new JPanel();
 		header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
@@ -181,7 +194,19 @@ class PromotionPanel extends PluginPanel
 				refreshAction.run();
 			}
 		});
-		header.add(refreshButton);
+		styleButton(rulesButton);
+		rulesButton.setToolTipText("Edit the rank ladder and vanity ranks");
+		rulesButton.addActionListener(e ->
+		{
+			rulesEditor.open();
+			views.show(this, "editor");
+		});
+		JPanel buttons = new JPanel(new GridLayout(1, 2, 6, 0));
+		buttons.setOpaque(false);
+		buttons.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+		buttons.add(refreshButton);
+		buttons.add(rulesButton);
+		header.add(buttons);
 		header.add(gap(10));
 
 		JPanel overview = new JPanel(new GridLayout(2, 2, 6, 6));
@@ -210,21 +235,12 @@ class PromotionPanel extends PluginPanel
 			}
 		}
 		note.setAlignmentX(Component.LEFT_ALIGNMENT);
-		add(header, BorderLayout.NORTH);
+		main.add(header, BorderLayout.NORTH);
 
 		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
 		list.setBackground(PANEL_BACKGROUND);
 		list.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 7));
-		JScrollPane scroll = new JScrollPane(list);
-		scroll.setBackground(PANEL_BACKGROUND);
-		scroll.getViewport().setBackground(PANEL_BACKGROUND);
-		scroll.setBorder(BorderFactory.createEmptyBorder());
-		scroll.setViewportBorder(null);
-		scroll.getVerticalScrollBar().setPreferredSize(new Dimension(2, 0));
-		scroll.getVerticalScrollBar().setBackground(PANEL_BACKGROUND);
-		scroll.getVerticalScrollBar().setUI(new DarkScrollBarUI());
-		scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-		add(scroll, BorderLayout.CENTER);
+		main.add(darkScroll(list), BorderLayout.CENTER);
 
 		rebuildTimer = new Timer(REBUILD_DELAY_MS, e ->
 		{
@@ -289,6 +305,21 @@ class PromotionPanel extends PluginPanel
 		}
 	}
 
+	/** A vertical-only scroll pane with the panel's thin dark scroll bar. */
+	static JScrollPane darkScroll(JComponent view)
+	{
+		JScrollPane scroll = new JScrollPane(view);
+		scroll.setBackground(PANEL_BACKGROUND);
+		scroll.getViewport().setBackground(PANEL_BACKGROUND);
+		scroll.setBorder(BorderFactory.createEmptyBorder());
+		scroll.setViewportBorder(null);
+		scroll.getVerticalScrollBar().setPreferredSize(new Dimension(2, 0));
+		scroll.getVerticalScrollBar().setBackground(PANEL_BACKGROUND);
+		scroll.getVerticalScrollBar().setUI(new DarkScrollBarUI());
+		scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		return scroll;
+	}
+
 	/** A thin dark scroll bar: panel-coloured track, subtle thumb, no arrow buttons. */
 	private static final class DarkScrollBarUI extends BasicScrollBarUI
 	{
@@ -340,7 +371,7 @@ class PromotionPanel extends PluginPanel
 	}
 
 	/** A panel that is exactly as wide as the scroll pane's viewport, so wide rows are cut off instead of overflowing. */
-	private static final class ViewportWidthPanel extends JPanel implements Scrollable
+	static final class ViewportWidthPanel extends JPanel implements Scrollable
 	{
 		@Override
 		public Dimension getPreferredScrollableViewportSize()
@@ -408,7 +439,7 @@ class PromotionPanel extends PluginPanel
 	}
 
 	/** A vertical gap that is left-aligned like the rest, since a centre-aligned one would shift the others sideways. */
-	private static Component gap(int height)
+	static Component gap(int height)
 	{
 		JComponent filler = (JComponent) Box.createVerticalStrut(height);
 		filler.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -447,7 +478,7 @@ class PromotionPanel extends PluginPanel
 	}
 
 	/** A flat dark button, like the Update and Open Profile buttons in other panels. */
-	private static void styleButton(JButton button)
+	static void styleButton(JButton button)
 	{
 		button.setFocusPainted(false);
 		button.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -524,7 +555,15 @@ class PromotionPanel extends PluginPanel
 		failedValue.setText(String.valueOf(summary.getFailedCount()));
 		membersValue.setText(String.valueOf(summary.getMemberCount()));
 
-		if (summary.getMemberCount() == 0)
+		note.setToolTipText(null);
+		if (!summary.getRuleErrors().isEmpty())
+		{
+			// A mistyped line drops a rank, which silently changes everyone's next rank, so this comes first
+			int count = summary.getRuleErrors().size();
+			note.setText(count + " rank requirement line" + (count == 1 ? "" : "s") + " ignored (hover)");
+			note.setToolTipText("<html>" + String.join("<br>", escape(summary.getRuleErrors())) + "</html>");
+		}
+		else if (summary.getMemberCount() == 0)
 		{
 			note.setText("Log in and open your clan to load members");
 		}
@@ -539,6 +578,11 @@ class PromotionPanel extends PluginPanel
 		}
 		updateLastChecked();
 		refreshButton.setEnabled(summary.isWiseOldManEnabled() && !summary.isFetching() && summary.getMemberCount() > 0);
+		// A greyed-out button says nothing on its own, so the tooltip gives the reason
+		refreshButton.setToolTipText(!summary.isWiseOldManEnabled() ? "Turn on \"Look up XP on Wise Old Man\" in the plugin settings first"
+			: summary.isFetching() ? "A refresh is already running"
+			: summary.getMemberCount() == 0 ? "Log in and open your clan to load members first"
+			: "Re-check XP now instead of waiting for the refresh interval");
 
 		String query = search.getText().trim().toLowerCase(Locale.ROOT);
 		List<PromotionRow> shown = new ArrayList<>();
@@ -627,7 +671,7 @@ class PromotionPanel extends PluginPanel
 		status.setFont(FontManager.getRunescapeSmallFont());
 		status.setForeground(accent);
 
-		boolean hasBars = row.getRequiredMonths() > 0 || row.getRequiredXpMillions() > 0;
+		boolean hasBars = row.getRequiredMonths() > 0 || row.getRequiredXpMillions() > 0 || row.getRequiredBosses() > 0;
 		JLabel details = new JLabel(detailsText(row, !hasBars));
 		details.setFont(FontManager.getRunescapeSmallFont().deriveFont(Font.PLAIN));
 		details.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
@@ -651,6 +695,11 @@ class PromotionPanel extends PluginPanel
 			south.add(gap(2));
 			south.add(new MiniBar(row.getMonths() + " mo", monthFraction));
 			south.add(new MiniBar(row.getXpGained() == null ? "--" : formatXp(row.getXpGained()), xpFraction));
+			if (row.getRequiredBosses() > 0)
+			{
+				Double bossFraction = row.getBossKills() == null ? null : Double.valueOf((double) row.getBossKills() / row.getRequiredBosses());
+				south.add(new MiniBar(row.getBossKills() == null ? "--" : row.getBossKills() + " kc", bossFraction));
+			}
 		}
 
 		panel.add(top, BorderLayout.NORTH);
@@ -803,6 +852,16 @@ class PromotionPanel extends PluginPanel
 			}
 		}
 		return text.toString();
+	}
+
+	private static List<String> escape(List<String> lines)
+	{
+		List<String> escaped = new ArrayList<>();
+		for (String line : lines)
+		{
+			escaped.add(line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"));
+		}
+		return escaped;
 	}
 
 	static String formatXp(long xp)
