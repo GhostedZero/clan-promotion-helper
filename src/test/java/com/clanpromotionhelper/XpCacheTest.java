@@ -227,4 +227,20 @@ public class XpCacheTest
 		assertEquals(1, loaded.size());
 		assertEquals(Long.valueOf(5L), loaded.get("good").getXpGained());
 	}
+
+	@Test
+	public void levelsAndKillsSurviveSaveAndLoad()
+	{
+		XpCache cache = new XpCache();
+		Map<String, Integer> levels = new HashMap<>();
+		levels.put("slayer", 99);
+		Map<String, Long> kills = new HashMap<>();
+		kills.put("tzkal_zuk", 1L);
+		cache.put("Legend", new XpCache.Entry(5L, NOW, JOINED.toString(), null, 10L, 3L, levels, kills));
+
+		XpCache.Entry loaded = XpCache.fromJson(cache.toJson(gson), gson).get("Legend");
+		assertEquals(Integer.valueOf(99), loaded.getLevels().get("slayer"));
+		assertEquals(Long.valueOf(1L), loaded.getKills().get("tzkal_zuk"));
+		assertEquals(Long.valueOf(3L), loaded.getBossKills());
+	}
 }

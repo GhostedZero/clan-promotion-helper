@@ -17,8 +17,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Remembers each member's XP gained since joining, so members are only looked up again
- * once their entry is older than the refresh interval or their join date changes.
+ * Remembers each member's XP gained since their window started (join date or last rank change), so members
+ * are only looked up again once their entry is older than the refresh interval or their window start changes.
  */
 class XpCache
 {
@@ -31,9 +31,10 @@ class XpCache
 	@AllArgsConstructor
 	static class Entry
 	{
-		/** XP gained since joining; null when the last lookup failed */
+		/** XP gained since the window start; null when the last lookup failed */
 		Long xpGained;
 		long fetchedAt;
+		/** The window start this entry was looked up for; named joinDate because saved caches use that key */
 		String joinDate;
 		String error;
 		/**
@@ -42,10 +43,23 @@ class XpCache
 		 * work out everyone's XP gained. Null when unknown (including caches saved by older versions).
 		 */
 		Long baselineXp;
+		/** Boss kills gained since the window start; null when unknown (group refreshes don't include them) */
+		Long bossKills;
+		/**
+		 * Current skill levels and lifetime kill counts (bosses with kills only), for vanity ranks. Null unless
+		 * the entry came from a one-by-one lookup made while vanity ranks were set, to keep the saved cache small.
+		 */
+		Map<String, Integer> levels;
+		Map<String, Long> kills;
 
 		Entry(Long xpGained, long fetchedAt, String joinDate, String error)
 		{
-			this(xpGained, fetchedAt, joinDate, error, null);
+			this(xpGained, fetchedAt, joinDate, error, null, null, null, null);
+		}
+
+		Entry(Long xpGained, long fetchedAt, String joinDate, String error, Long baselineXp)
+		{
+			this(xpGained, fetchedAt, joinDate, error, baselineXp, null, null, null);
 		}
 	}
 
