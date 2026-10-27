@@ -12,7 +12,7 @@ A RuneLite plugin that helps clan leaders identify members who are ready for pro
 
 - Highlights members who meet the requirements for their next rank.
 
-- Supports custom rank ladders to match your clan's promotion system.
+- Supports custom rank ladders to match your clan's promotion system, plus vanity ranks based on levels and kill counts, with an editor in the sidebar.
 
 - Caches results locally to make subsequent checks faster.
 
@@ -39,7 +39,7 @@ Click the plugin's icon in RuneLite's sidebar:
 
 ## Rank requirements
 
-One rank per line, lowest first, as `Rank:months:XP in millions`. This is an example ladder; replace it with your clan's own rank titles and requirements:
+One rank per line, lowest first, as `Rank:months:XP in millions`, optionally followed by `:boss kills` and `:AND` or `:OR`. This is an example ladder; replace it with your clan's own rank titles and requirements:
 
 ```
 Thief:0:0
@@ -59,11 +59,54 @@ Marshal:24:75
 
 If a title doesn't match, those members show "Rank not in table" and are never suggested. Leave out ranks you don't promote to, such as Owner.
 
+In **Edit rules**, **Fill from clan** lists your clan's ranks in their in-game order, so you only fill in the requirements. Ranks you already set keep their requirements. Guest, administrator and higher, and your vanity ranks are left out, and ladder ranks your clan doesn't have are removed. Nothing changes until you press Save.
+
+### Boss kills
+
+Add boss kills (all bosses together) and how they combine with XP:
+
+```
+Sergeant:3:3:25:OR     3 months, and 3M XP or 25 boss kills
+Captain:5:5:50:AND     5 months, and 5M XP and 50 boss kills
+```
+
+- `AND` (the default) needs both, `OR` needs either. The months are always required.
+- A `0` isn't required, so `General:6:8:0:OR` still needs the 8M XP.
+- Boss kills only come from one-by-one lookups, so members whose next rank needs them aren't covered by the group refresh.
+- A failed lookup is never treated as 0 kills.
+
+Lines the plugin can't read are skipped and listed in the sidebar (hover the note under the tiles).
+
+### Vanity ranks
+
+Side ranks members can qualify for from any rank, checked on lifetime stats instead of gains. Use **Edit rules** in the sidebar, or the **Vanity ranks** setting with one rank per line as `Name: condition; condition` (every condition is needed):
+
+```
+PvM Legend: rank Sergeant or 6 months; level slayer 99; kills all 12500; kills raids 50
+Maxed Legend: rank Sergeant or 6 months; level all except sailing 99
+PvM GOD: rank Sergeant or 6 months; kills TzKal-Zuk, Sol Heredit 1; kills all 5000
+```
+
+- `rank Sergeant or 6 months`: holds Sergeant or any higher rank (by the in-game rank order), has been seen holding one, or joined at least 6 months ago. Either half can be left out.
+- `level slayer 99`, `level all 99`, `level all except sailing 99`.
+- `kills all N` counts every boss on the hiscores, including Wintertodt, Tempoross and Zalcano. `kills raids N` counts every Chambers, Theatre and Tombs mode on the hiscores. Boss names can also be listed with commas.
+- Kill counts below the hiscores' minimum for a boss show as unranked and can't be counted, so totals can read a little low.
+- Ready members show the vanity rank as their next rank. Members already holding it aren't suggested it again.
+- Vanity ranks need each member looked up one by one, so the group refresh no longer saves requests for members who could still earn one.
+
+### Counting from the last rank change
+
+Turn on **Count from last rank change** to count months, XP and boss kills from a member's last rank change instead of their join date. The game doesn't record when ranks change, so the plugin notes it itself whenever it sees a member's rank differ from last time:
+
+- Only changes seen while you're logged in with the plugin count; a change made while you were offline is dated to when you next log in.
+- Members it has never seen change rank are counted from their join date.
+- Changes are recorded even while the setting is off, so turning it on later uses them.
+
 ## Privacy
 
 Wise Old Man lookups are **off by default**. When you turn them on, the plugin sends only these things, and only to [wiseoldman.net](https://wiseoldman.net):
 
-- each clan member's **name** and **join date**, so Wise Old Man can say how much XP they gained since then;
+- each clan member's **name** and **join date** (or last rank change date, if you count from that), so Wise Old Man can say how much XP and boss kills they gained since then;
 - your **contact name** and **API key**, if you entered them.
 
 Like any web request, this shows your IP address to Wise Old Man. Results are saved only on your own computer, and the plugin never changes anything on Wise Old Man: it only reads.

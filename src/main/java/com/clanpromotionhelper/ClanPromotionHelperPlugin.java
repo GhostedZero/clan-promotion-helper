@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -25,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.clan.ClanMember;
+import net.runelite.api.clan.ClanRank;
 import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.events.GameStateChanged;
@@ -49,6 +51,7 @@ import net.runelite.client.util.ImageUtil;
 public class ClanPromotionHelperPlugin extends Plugin
 {
 	private static final String CACHE_KEY = "xpCache";
+	private static final String RANK_HISTORY_KEY = "rankHistory";
 	/** How often the roster is re-read from clan settings (about 1.8 seconds) */
 	private static final int ROSTER_CHECK_TICKS = 3;
 	/** How often to look for members whose XP is due a refresh, unless the roster just changed (about 30 seconds) */
@@ -69,7 +72,11 @@ public class ClanPromotionHelperPlugin extends Plugin
 	{
 		String name;
 		String rank;
+		/** Where XP, boss kills and months are counted from: the join date, or the last rank change seen */
+		LocalDate since;
 		LocalDate joinDate;
+		/** The in-game rank number, for vanity rank conditions like "Sergeant or higher" */
+		int rankNumber;
 		/** The game's icon for the member's clan rank; null if RuneLite hasn't loaded it */
 		BufferedImage rankIcon;
 	}
@@ -105,6 +112,9 @@ public class ClanPromotionHelperPlugin extends Plugin
 
 	@Inject
 	private PromotionOverlay promotionOverlay;
+
+	@Inject
+	private RulesEditorPanel rulesEditor;
 
 	@Inject
 	private MemberListHighlightOverlay memberListHighlightOverlay;
@@ -149,7 +159,20 @@ public class ClanPromotionHelperPlugin extends Plugin
 	private volatile String groupStatus;
 
 	private volatile RankRules rankRules;
+	private volatile VanityRules vanityRules;
+	/** In-game rank number of each rank title, keyed by lower-case title */
+	private volatile Map<String, Integer> rankNumbers = Collections.emptyMap();
+	/** Rank titles lowest first, for the rules editor */
+	@Getter
+	private volatile List<String> rankTitles = Collections.emptyList();
+	/** Titles members can be promoted through (below administrator), lowest first, for filling the ladder */
+	@Getter
+	private volatile List<String> ladderTitles = Collections.emptyList();
+	/** Boss names Wise Old Man has returned this session, so the editor can flag misspelt ones */
+	@Getter
+	private final Set<String> knownBosses = ConcurrentHashMap.newKeySet();
 	private volatile XpCache xpCache = new XpCache();
+	private volatile RankHistory rankHistory = new RankHistory();
 	private String loadedProfileKey;
 	private int rosterHash;
 	private int ticksUntilRosterCheck;
@@ -180,6 +203,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 	protected void startUp()
 	{
 		rankRules = RankRules.parse(config.rankRequirements());
+		vanityRules = VanityRules.parse(config.vanityRanks());
 		ticksUntilRosterCheck = 1;
 		overlayManager.add(promotionOverlay);
 		overlayManager.add(memberListHighlightOverlay);
@@ -193,6 +217,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 		clientToolbar.addNavigation(navigationButton);
 		promotionPanel.start();
 		promotionPanel.setRefreshAction(() -> executor.submit(this::requestRefresh));
+		rulesEditor.setSources(this::getRankTitles, this::getLadderTitles, this::getKnownBosses);
 		recompute();
 	}
 
@@ -240,7 +265,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 			return;
 		}
 
-		List<Member> roster = readRoster(settings);
+		List<Member> roster = readRoster(settings, LocalDate.now());
 		boolean rosterChanged = roster.hashCode() != rosterHash;
 		if (rosterChanged)
 		{
@@ -253,6 +278,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 				names.add(member.getName());
 			}
 			xpCache.retainOnly(names);
+			rankHistory.retainOnly(names);
 			recompute();
 		}
 
@@ -275,8 +301,16 @@ public class ClanPromotionHelperPlugin extends Plugin
 
 		switch (event.getKey())
 		{
+			case "countFromRankChange":
+				// The next roster read picks up the new start dates, which also queues the lookups they need
+				ticksUntilRosterCheck = 1;
+				break;
 			case "rankRequirements":
 				rankRules = RankRules.parse(config.rankRequirements());
+				recompute();
+				break;
+			case "vanityRanks":
+				vanityRules = VanityRules.parse(config.vanityRanks());
 				recompute();
 				break;
 			case "enableWiseOldMan":
@@ -295,8 +329,30 @@ public class ClanPromotionHelperPlugin extends Plugin
 		}
 	}
 
-	private List<Member> readRoster(ClanSettings settings)
+	private List<Member> readRoster(ClanSettings settings, LocalDate today)
 	{
+		boolean fromRankChange = config.countFromRankChange();
+		Map<String, Integer> numbers = new HashMap<>();
+		List<String> titles = new ArrayList<>();
+		List<String> ladder = new ArrayList<>();
+		// Rank numbers run from guest (-1) to Jagex moderator (127); unused ones have no title
+		for (int i = -1; i <= 127; i++)
+		{
+			ClanTitle title = settings.titleForRank(new ClanRank(i));
+			if (title != null && title.getName() != null && numbers.putIfAbsent(title.getName().toLowerCase(Locale.ROOT), i) == null)
+			{
+				titles.add(title.getName());
+				// Guests aren't members, and administrator and up are appointed rather than promoted into
+				if (i >= 0 && i < ClanRank.ADMINISTRATOR.getRank())
+				{
+					ladder.add(title.getName());
+				}
+			}
+		}
+		rankNumbers = Collections.unmodifiableMap(numbers);
+		rankTitles = Collections.unmodifiableList(titles);
+		ladderTitles = Collections.unmodifiableList(ladder);
+
 		List<Member> roster = new ArrayList<>();
 		for (ClanMember clanMember : settings.getMembers())
 		{
@@ -308,7 +364,14 @@ public class ClanPromotionHelperPlugin extends Plugin
 			ClanTitle title = settings.titleForRank(clanMember.getRank());
 			String name = clanMember.getName().replace('\u00A0', ' ').trim();
 			BufferedImage icon = title == null ? null : chatIconManager.getRankImage(title);
-			roster.add(new Member(name, title == null ? null : title.getName(), clanMember.getJoinDate(), icon));
+			// Recorded even with the setting off, so turning it on later has the changes seen so far
+			if (clanMember.getRank() != null)
+			{
+				rankHistory.record(name, clanMember.getRank().getRank(), today);
+			}
+			LocalDate since = fromRankChange ? rankHistory.since(name, clanMember.getJoinDate()) : clanMember.getJoinDate();
+			int rankNumber = clanMember.getRank() == null ? Integer.MIN_VALUE : clanMember.getRank().getRank();
+			roster.add(new Member(name, title == null ? null : title.getName(), since, clanMember.getJoinDate(), rankNumber, icon));
 		}
 		return roster;
 	}
@@ -330,10 +393,12 @@ public class ClanPromotionHelperPlugin extends Plugin
 			stopFetching();
 			saveCache();
 			XpCache loaded = XpCache.fromJson(configManager.getConfiguration(ClanPromotionHelperConfig.GROUP, profileKey, CACHE_KEY), gson);
+			RankHistory history = RankHistory.fromJson(configManager.getConfiguration(ClanPromotionHelperConfig.GROUP, profileKey, RANK_HISTORY_KEY), gson);
 			// Under the lock, so a lookup that finishes during the switch can't land in the new account's cache
 			synchronized (this)
 			{
 				xpCache = loaded;
+				rankHistory = history;
 				loadedProfileKey = profileKey;
 			}
 			rosterHash = 0;
@@ -350,6 +415,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 			return;
 		}
 		configManager.setConfiguration(ClanPromotionHelperConfig.GROUP, profileKey, CACHE_KEY, xpCache.toJson(gson));
+		configManager.setConfiguration(ClanPromotionHelperConfig.GROUP, profileKey, RANK_HISTORY_KEY, rankHistory.toJson(gson));
 		synchronized (this)
 		{
 			unsavedResults = 0;
@@ -367,6 +433,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 		checkedCount = 0;
 		failedCount = 0;
 		xpCache = new XpCache();
+		rankHistory = new RankHistory();
 		loadedProfileKey = null;
 		rosterHash = 0;
 		promotionPanel.update(rows, summary());
@@ -382,9 +449,10 @@ public class ClanPromotionHelperPlugin extends Plugin
 		for (Member member : members)
 		{
 			XpCache.Entry entry = xpCache.get(member.getName());
+			// Only a forced refresh fills in missing data; doing it on every check could loop on a response without it
 			boolean forced = entry != null && entry.getFetchedAt() < forceRefreshBefore
-				&& (everyone || entry.getXpGained() == null);
-			if (forced || xpCache.needsFetch(member.getName(), member.getJoinDate(), now, refreshHours))
+				&& (everyone || entry.getXpGained() == null || missingData(member, entry));
+			if (forced || xpCache.needsFetch(member.getName(), member.getSince(), now, refreshHours))
 			{
 				stale.add(member);
 			}
@@ -453,11 +521,24 @@ public class ClanPromotionHelperPlugin extends Plugin
 		startIndividualLookups(stale);
 	}
 
+	/** Whether the member needs more than total XP, which only a one-by-one lookup gives. */
+	private boolean needsFullLookup(Member member)
+	{
+		return rankRules.nextNeedsBosses(member.getRank()) || vanityRules.appliesTo(member.getRank());
+	}
+
+	/** Whether the entry lacks boss kills or levels the member's rules need, e.g. because it came from a group refresh. */
+	private boolean missingData(Member member, XpCache.Entry entry)
+	{
+		return (entry.getBossKills() == null && rankRules.nextNeedsBosses(member.getRank()))
+			|| (entry.getLevels() == null && vanityRules.appliesTo(member.getRank()));
+	}
+
 	private boolean hasBaseline(List<Member> stale)
 	{
 		for (Member member : stale)
 		{
-			if (xpCache.baselineFor(member.getName(), member.getJoinDate()) != null)
+			if (xpCache.baselineFor(member.getName(), member.getSince()) != null)
 			{
 				return true;
 			}
@@ -480,7 +561,8 @@ public class ClanPromotionHelperPlugin extends Plugin
 				int updated = 0;
 				for (Member member : members)
 				{
-					if (xpCache.applyGroupXp(member.getName(), member.getJoinDate(), result.getExp(), now))
+					// The group only has total XP; members who need boss kills or levels stay stale and get a full lookup
+					if (!needsFullLookup(member) && xpCache.applyGroupXp(member.getName(), member.getSince(), result.getExp(), now))
 					{
 						updated++;
 					}
@@ -588,7 +670,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 	{
 		// Wise Old Man rejects a range that starts and ends on the same day, which would fail everyone who
 		// joined today; ending tomorrow also counts XP gained so far today
-		wiseOldManClient.fetchXpGained(member.getName(), member.getJoinDate(), LocalDate.now().plusDays(1),
+		wiseOldManClient.fetchXpGained(member.getName(), member.getSince(), LocalDate.now().plusDays(1),
 			config.apiKey(), config.contact(), result -> onResult(member, attempt, generation, result));
 	}
 
@@ -612,18 +694,21 @@ public class ClanPromotionHelperPlugin extends Plugin
 			// Written while still holding the lock that checked the run, so stopping or switching accounts
 			// can't happen between the check and the write
 			long now = System.currentTimeMillis();
-			String joinDate = member.getJoinDate().toString();
+			String since = member.getSince().toString();
 			// A baseline stays valid for this name and join date, so a failed lookup mustn't throw it away
-			Long savedBaseline = xpCache.baselineFor(member.getName(), member.getJoinDate());
+			Long savedBaseline = xpCache.baselineFor(member.getName(), member.getSince());
 			if (result.getStatus() == WiseOldManClient.Result.Status.OK)
 			{
 				Long baseline = result.getStartXp() != null ? result.getStartXp() : savedBaseline;
-				xpCache.put(member.getName(), new XpCache.Entry(result.getXpGained(), now, joinDate, null, baseline));
+				knownBosses.addAll(result.getKills().keySet());
+				boolean vanity = !vanityRules.getRules().isEmpty();
+				xpCache.put(member.getName(), new XpCache.Entry(result.getXpGained(), now, since, null, baseline, result.getBossKills(),
+					vanity ? result.getLevels() : null, vanity ? withKills(result.getKills()) : null));
 			}
 			else
 			{
 				log.debug("XP lookup for {} failed: {}", member.getName(), result.getError());
-				xpCache.put(member.getName(), new XpCache.Entry(null, now, joinDate, result.getError(), savedBaseline));
+				xpCache.put(member.getName(), new XpCache.Entry(null, now, since, result.getError(), savedBaseline));
 				individualFailed++;
 			}
 		}
@@ -644,9 +729,25 @@ public class ClanPromotionHelperPlugin extends Plugin
 		scheduleNext(apiKey == null || apiKey.trim().isEmpty() ? DELAY_WITHOUT_KEY_MS : DELAY_WITH_KEY_MS, generation);
 	}
 
+	/** Only bosses with kills, since most players have none at most bosses and the cache is saved in the config */
+	private static Map<String, Long> withKills(Map<String, Long> kills)
+	{
+		Map<String, Long> result = new HashMap<>();
+		for (Map.Entry<String, Long> boss : kills.entrySet())
+		{
+			if (boss.getValue() > 0)
+			{
+				result.put(boss.getKey(), boss.getValue());
+			}
+		}
+		return result;
+	}
+
 	private void recompute()
 	{
 		RankRules rules = rankRules;
+		VanityRules vanity = vanityRules;
+		Map<String, Integer> numbers = rankNumbers;
 		XpCache cache = xpCache;
 		Set<String> ignoredPlayers = splitList(config.ignoredPlayers(), true);
 		Set<String> ignoredTargets = splitList(config.ignoredTargetRanks(), false);
@@ -663,42 +764,46 @@ public class ClanPromotionHelperPlugin extends Plugin
 		{
 			XpCache.Entry entry = cache.get(member.getName());
 			Long xp = entry == null ? null : entry.getXpGained();
-			RankRules.Evaluation evaluation = rules.evaluate(member.getRank(), member.getJoinDate(), xp, today);
+			Long bosses = entry == null ? null : entry.getBossKills();
+			RankRules.Evaluation evaluation = rules.evaluate(member.getRank(), member.getSince(), xp, bosses, today);
 
-			PromotionStatus status = evaluation.getStatus();
-			String detail = null;
-			if (entry == null)
-			{
-				status = status == PromotionStatus.UNKNOWN_RANK || status == PromotionStatus.MAX_RANK ? status : PromotionStatus.PENDING;
-			}
-			else
+			if (entry != null)
 			{
 				checked++;
 				if (xp == null)
 				{
 					failed++;
-					detail = entry.getError();
-					status = status == PromotionStatus.UNKNOWN_RANK || status == PromotionStatus.MAX_RANK ? status : PromotionStatus.FAILED;
 				}
 			}
 
+			boolean vanityApplies = vanity.appliesTo(member.getRank());
+			List<String> vanityMet = null;
+			if (vanityApplies && xp != null && entry.getLevels() != null)
+			{
+				VanityRules.Stats stats = new VanityRules.Stats(member.getRankNumber(),
+					rankHistory.peak(member.getName(), member.getRankNumber()),
+					RankRules.monthsInClan(member.getJoinDate(), today), entry.getLevels(),
+					entry.getKills() == null ? Collections.emptyMap() : entry.getKills());
+				vanityMet = vanity.qualified(member.getRank(), stats, numbers);
+			}
+
+			Outcome outcome = decide(evaluation.getStatus(), evaluation.getNextRank(), entry != null, xp != null,
+				entry == null ? null : entry.getError(), vanityApplies, vanityMet,
+				ignoredPlayers.contains(XpCache.key(member.getName())), ignoredTargets);
+			PromotionStatus status = outcome.getStatus();
+			String readyText = String.join(" / ", outcome.getTargets());
 			if (status == PromotionStatus.READY)
 			{
-				String next = evaluation.getNextRank();
-				if (ignoredPlayers.contains(XpCache.key(member.getName())) || ignoredTargets.contains(next.toLowerCase(Locale.ROOT)))
-				{
-					status = PromotionStatus.IGNORED;
-				}
-				else
-				{
-					found.add(new Candidate(member.getName(), member.getRank(), next));
-					targets.put(XpCache.key(member.getName()), next);
-					currentRanks.put(XpCache.key(member.getName()), member.getRank());
-				}
+				found.add(new Candidate(member.getName(), member.getRank(), readyText));
+				targets.put(XpCache.key(member.getName()), readyText);
+				currentRanks.put(XpCache.key(member.getName()), member.getRank());
 			}
 
-			allRows.add(new PromotionRow(member.getName(), member.getRank(), evaluation.getNextRank(),
-				evaluation.getMonths(), evaluation.getRequiredMonths(), evaluation.getRequiredXpMillions(), xp, status, detail, member.getRankIcon(),
+			boolean showLadder = outcome.isShowLadder();
+			allRows.add(new PromotionRow(member.getName(), member.getRank(),
+				status == PromotionStatus.READY ? readyText : evaluation.getNextRank(),
+				evaluation.getMonths(), showLadder ? evaluation.getRequiredMonths() : 0, showLadder ? evaluation.getRequiredXpMillions() : 0, xp,
+				showLadder ? evaluation.getRequiredBosses() : 0, bosses, status, outcome.getDetail(), member.getRankIcon(),
 				entry == null ? 0 : entry.getFetchedAt()));
 		}
 
@@ -712,10 +817,93 @@ public class ClanPromotionHelperPlugin extends Plugin
 		promotionPanel.update(rows, summary());
 	}
 
+	/** What the sidebar shows for one member, from the ladder result, the vanity result and the ignore lists. */
+	@Value
+	static class Outcome
+	{
+		PromotionStatus status;
+		/** The ranks the member is ready for, ignored ones left out; empty unless READY */
+		List<String> targets;
+		/** Whether the ladder's progress bars belong on the card: not when it shows a vanity rank instead */
+		boolean showLadder;
+		/** Why the member is waiting or failed, for the tooltip; null otherwise */
+		String detail;
+	}
+
+	/**
+	 * @param error the lookup's error when it failed
+	 * @param vanityMet the vanity ranks met, or null when vanity ranks don't apply or levels haven't been looked up
+	 */
+	static Outcome decide(PromotionStatus ladderStatus, String ladderNext, boolean hasEntry, boolean hasXp, String error,
+		boolean vanityApplies, List<String> vanityMet, boolean playerIgnored, Set<String> ignoredTargets)
+	{
+		PromotionStatus status = ladderStatus;
+		String detail = null;
+		// A rank that isn't on the ladder, or tops it, can still lead to a vanity rank
+		boolean ladderOnly = (status == PromotionStatus.UNKNOWN_RANK || status == PromotionStatus.MAX_RANK) && !vanityApplies;
+		if (!hasEntry)
+		{
+			status = ladderOnly ? status : PromotionStatus.PENDING;
+		}
+		else if (!hasXp)
+		{
+			detail = error;
+			status = ladderOnly ? status : PromotionStatus.FAILED;
+		}
+		else if (status == PromotionStatus.NO_XP)
+		{
+			// XP came from a group refresh, which has no boss kills
+			status = PromotionStatus.PENDING;
+			detail = "Boss kills not looked up yet: they're checked at the next refresh, or use Refresh now";
+		}
+
+		List<String> ready = new ArrayList<>();
+		if (status == PromotionStatus.READY)
+		{
+			ready.add(ladderNext);
+		}
+		if (vanityApplies && hasXp)
+		{
+			if (vanityMet != null)
+			{
+				ready.addAll(vanityMet);
+			}
+			else if (ready.isEmpty())
+			{
+				status = PromotionStatus.PENDING;
+				detail = "Levels and kill counts not looked up yet: they're checked at the next refresh, or use Refresh now";
+			}
+		}
+
+		boolean anyReady = !ready.isEmpty();
+		ready.removeIf(next -> ignoredTargets.contains(next.toLowerCase(Locale.ROOT)));
+		if (anyReady && (ready.isEmpty() || playerIgnored))
+		{
+			status = PromotionStatus.IGNORED;
+			ready.clear();
+		}
+		else if (anyReady)
+		{
+			status = PromotionStatus.READY;
+		}
+		boolean showLadder = status != PromotionStatus.READY || ready.contains(ladderNext);
+		return new Outcome(status, Collections.unmodifiableList(ready), showLadder, detail);
+	}
+
 	private PromotionPanel.Summary summary()
 	{
+		List<String> ruleErrors = new ArrayList<>();
+		if (rankRules != null)
+		{
+			ruleErrors.addAll(rankRules.getErrors());
+		}
+		if (vanityRules != null)
+		{
+			ruleErrors.addAll(vanityRules.getErrors());
+			ruleErrors.addAll(vanityRules.unknownRanks(rankNumbers.keySet()));
+		}
 		return new PromotionPanel.Summary(members.size(), candidates.size(), checkedCount, failedCount,
-			config.enableWiseOldMan(), fetching, groupStatus);
+			config.enableWiseOldMan(), fetching, groupStatus, ruleErrors);
 	}
 
 	private static Set<String> splitList(String value, boolean names)

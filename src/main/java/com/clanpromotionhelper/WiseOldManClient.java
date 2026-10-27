@@ -48,22 +48,28 @@ class WiseOldManClient
 		Long xpGained;
 		/** Total XP when the window starts; null when Wise Old Man has no snapshot there */
 		Long startXp;
+		/** Boss kills gained in the window, all bosses together; null when the response had no boss data */
+		Long bossKills;
+		/** Each skill's current level, by Wise Old Man's skill name; empty when the response had none */
+		Map<String, Integer> levels;
+		/** Each boss's current lifetime kill count (0 when below the hiscores' minimum), by Wise Old Man's boss name */
+		Map<String, Long> kills;
 		int retryAfterSeconds;
 		String error;
 
-		static Result ok(long xpGained, Long startXp)
+		static Result ok(long xpGained, Long startXp, Long bossKills, Map<String, Integer> levels, Map<String, Long> kills)
 		{
-			return new Result(Status.OK, xpGained, startXp, 0, null);
+			return new Result(Status.OK, xpGained, startXp, bossKills, levels, kills, 0, null);
 		}
 
 		static Result retry(int seconds, String error)
 		{
-			return new Result(Status.RETRY, null, null, seconds, error);
+			return new Result(Status.RETRY, null, null, null, null, null, seconds, error);
 		}
 
 		static Result failed(String error)
 		{
-			return new Result(Status.FAILED, null, null, 0, error);
+			return new Result(Status.FAILED, null, null, null, null, null, 0, error);
 		}
 	}
 
@@ -290,7 +296,59 @@ class WiseOldManClient
 			? start.getAsLong()
 			: null;
 
-		return Result.ok(gained.getAsLong(), startXp);
+		JsonElement bosses = path(root, "data", "bosses");
+		Map<String, Integer> levels = new HashMap<>();
+		JsonElement skills = path(root, "data", "skills");
+		if (skills != null && skills.isJsonObject())
+		{
+			for (Map.Entry<String, JsonElement> skill : skills.getAsJsonObject().entrySet())
+			{
+				Long level = number(skill.getValue(), "level", "end");
+				if (level != null && !skill.getKey().equals("overall"))
+				{
+					levels.put(skill.getKey(), level.intValue());
+				}
+			}
+		}
+
+		Map<String, Long> kills = new HashMap<>();
+		if (bosses != null && bosses.isJsonObject())
+		{
+			for (Map.Entry<String, JsonElement> boss : bosses.getAsJsonObject().entrySet())
+			{
+				Long end = number(boss.getValue(), "kills", "end");
+				// -1 means below the hiscores' minimum, so those few kills can't be counted
+				kills.put(boss.getKey(), end == null ? 0L : Math.max(0L, end));
+			}
+		}
+
+		return Result.ok(gained.getAsLong(), startXp, bossKills(bosses), levels, kills);
+	}
+
+	private static Long number(JsonElement element, String... keys)
+	{
+		JsonElement value = element.isJsonObject() ? path(element.getAsJsonObject(), keys) : null;
+		return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isNumber() ? value.getAsLong() : null;
+	}
+
+	/** Sums {@code kills.gained} over every boss, ignoring negative gains; null when there's no boss data. */
+	private static Long bossKills(JsonElement bosses)
+	{
+		if (bosses == null || !bosses.isJsonObject())
+		{
+			return null;
+		}
+
+		long total = 0;
+		for (Map.Entry<String, JsonElement> boss : bosses.getAsJsonObject().entrySet())
+		{
+			Long kills = number(boss.getValue(), "kills", "gained");
+			if (kills != null && kills > 0)
+			{
+				total += kills;
+			}
+		}
+		return total;
 	}
 
 	private static int parseRetryAfter(String header)

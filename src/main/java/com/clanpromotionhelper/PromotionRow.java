@@ -17,8 +17,12 @@ class PromotionRow
 	/** What the next rank needs, for the progress bars; 0 when there is no next rank */
 	int requiredMonths;
 	double requiredXpMillions;
-	/** XP gained since joining; null until a lookup succeeds */
+	/** XP gained since the window start (join date or last rank change); null until a lookup succeeds */
 	Long xpGained;
+	/** Boss kills the next rank needs; 0 when bosses aren't part of its rule */
+	int requiredBosses;
+	/** Boss kills gained since the window start; null when unknown */
+	Long bossKills;
 	PromotionStatus status;
 	/** Why a lookup failed, for the tooltip */
 	String detail;
