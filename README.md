@@ -1,23 +1,27 @@
 # Clan Promotion Helper
 
-A RuneLite plugin for clan leaders. It works out which clan members are due a promotion from how long they've been in the clan and how much XP they've gained since joining. It lists them in a sidebar and an on-screen panel, and highlights them in the Clan Settings member list.
+A RuneLite plugin that helps clan leaders identify members who are ready for promotion. It compares each member's time in the clan and XP gained against your clan's rank requirements, then lists eligible members in a sidebar and on-screen panel and highlights them in the Clan Settings member list.
 
-<img src="screenshots/ready.png" width="225" alt="The Ready tab of the sidebar, with made-up members">
+<img src="screenshots/ready.png" width="225" alt="The Ready tab of the sidebar showing example clan members and their promotion progress">
 
-*The members shown are made up. In game, each name shows the member's clan rank icon.*
+## Features
 
-## How it works
+- Automatically reads clan members, ranks and join dates from the game.
 
-1. The plugin reads your clan's members, ranks and join dates straight from the game.
-2. If you turn on Wise Old Man lookups, it fetches each member's XP gained since they joined from [wiseoldman.net](https://wiseoldman.net), one member at a time in the background.
-3. A member is due a promotion once they have both the months in the clan and the XP their **next** rank needs. A month counts once its join day arrives, so someone who joined on the 25th reaches 2 months on the 25th, not the 24th.
+- Tracks XP gained using optional [wiseoldman.net](https://wiseoldman.net) lookups.
+
+- Highlights members who meet the requirements for their next rank.
+
+- Supports custom rank ladders to match your clan's promotion system.
+
+- Caches results locally to make subsequent checks faster.
 
 ## Setup
 
 In the plugin's settings:
 
 1. **Look up XP on Wise Old Man:** turn this on. It's off by default because it sends requests to a third-party site.
-2. **Contact name:** your Discord name. It's sent with each lookup so Wise Old Man can reach you about your usage.
+2. **Contact name:** your Discord name. It's sent with each lookup so Wise Old Man can reach you if needed about your usage.
 3. **API key** (optional): raises Wise Old Man's limit from 20 to 100 lookups a minute. Ask for one on the [Wise Old Man Discord](https://wiseoldman.net/discord).
 4. **Rank requirements:** check the table below matches your clan.
 5. **Wise Old Man group ID** (optional): if your clan has a [group](https://wiseoldman.net/groups), enter its ID (the number at the end of its web address). After the first fill, a refresh then takes one request for the whole group instead of one per member. If the group request fails, the plugin falls back to looking members up one by one.
@@ -26,9 +30,10 @@ A clan of about 500 members takes around 28 minutes to check without an API key 
 
 ## Sidebar
 
-Click the plugin's icon in RuneLite's sidebar to see every clan member:
+Click the plugin's icon in RuneLite's sidebar:
 
 - Tabs for **Ready**, **Later** (not ready yet), **Failed** and **All**, plus a name search.
+- The list of members is limited to 200 results so you may need to use the search function to find specific members in larger clans.
 - Each member shows their rank, months in the clan, XP gained and progress towards the next rank.
 - **Refresh now** re-checks XP straight away. With a group ID set it refreshes everyone with one request; without one it only retries members with no result or a failed lookup.
 
@@ -38,11 +43,11 @@ One rank per line, lowest first, as `Rank:months:XP in millions`. This is an exa
 
 ```
 Thief:0:0
-Recruit:1:0.1
-Corporal:2:0.5
-Sergeant:3:1
-Lieutenant:4:2
-Captain:5:3
+Recruit:1:1
+Corporal:2:2
+Sergeant:3:3
+Lieutenant:4:4
+Captain:5:5
 General:6:8
 Officer:9:12
 Commander:12:20
