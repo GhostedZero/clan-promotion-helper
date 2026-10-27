@@ -64,7 +64,7 @@ public interface ClanPromotionHelperConfig extends Config
 	@ConfigItem(
 		keyName = "contact",
 		name = "Contact name",
-		description = "Your Discord or in-game name. Sent with each lookup so Wise Old Man can reach you about your usage.",
+		description = "Your Discord name. Sent with each lookup so Wise Old Man can reach you about your usage.",
 		section = wiseOldManSection,
 		position = 2
 	)

@@ -60,7 +60,7 @@ public class XpCacheTest
 	public void namesMatchIgnoringCaseAndNonBreakingSpaces()
 	{
 		XpCache cache = new XpCache();
-		cache.put("2006 Buffon", new XpCache.Entry(1L, NOW, JOINED.toString(), null));
+		cache.put("2006\u00A0Buffon", new XpCache.Entry(1L, NOW, JOINED.toString(), null));
 		assertEquals(Long.valueOf(1L), cache.get("2006 buffon").getXpGained());
 	}
 
@@ -217,5 +217,14 @@ public class XpCacheTest
 	{
 		assertEquals("2006 buffon", XpCache.key("2006 Buffon"));
 		assertEquals("618 ironman", XpCache.key("618_IRONMAN"));
+	}
+
+	@Test
+	public void damagedSaveWithNullEntriesStillLoads()
+	{
+		String json = "{\"good\":{\"xpGained\":5,\"fetchedAt\":1,\"joinDate\":\"2024-03-31\"},\"bad\":null}";
+		XpCache loaded = XpCache.fromJson(json, gson);
+		assertEquals(1, loaded.size());
+		assertEquals(Long.valueOf(5L), loaded.get("good").getXpGained());
 	}
 }

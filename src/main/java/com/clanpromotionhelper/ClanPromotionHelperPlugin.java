@@ -164,6 +164,11 @@ public class ClanPromotionHelperPlugin extends Plugin
 	/** Bumped whenever fetching stops, so late responses from an old run are ignored */
 	private int fetchGeneration;
 	private int unsavedResults;
+	/** Members the group request updated in the current run; null when this run didn't use the group */
+	private Integer groupUpdatedThisRun;
+	/** Size of the current run's one-by-one lookups, and how many of them failed */
+	private int individualTotal;
+	private int individualFailed;
 
 	@Provides
 	ClanPromotionHelperConfig provideConfig(ConfigManager configManager)
@@ -186,6 +191,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 			.panel(promotionPanel)
 			.build();
 		clientToolbar.addNavigation(navigationButton);
+		promotionPanel.start();
 		promotionPanel.setRefreshAction(() -> executor.submit(this::requestRefresh));
 		recompute();
 	}
@@ -300,7 +306,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 			}
 
 			ClanTitle title = settings.titleForRank(clanMember.getRank());
-			String name = clanMember.getName().replace(' ', ' ').trim();
+			String name = clanMember.getName().replace('\u00A0', ' ').trim();
 			BufferedImage icon = title == null ? null : chatIconManager.getRankImage(title);
 			roster.add(new Member(name, title == null ? null : title.getName(), clanMember.getJoinDate(), icon));
 		}
@@ -323,8 +329,13 @@ public class ClanPromotionHelperPlugin extends Plugin
 		{
 			stopFetching();
 			saveCache();
-			xpCache = XpCache.fromJson(configManager.getConfiguration(ClanPromotionHelperConfig.GROUP, profileKey, CACHE_KEY), gson);
-			loadedProfileKey = profileKey;
+			XpCache loaded = XpCache.fromJson(configManager.getConfiguration(ClanPromotionHelperConfig.GROUP, profileKey, CACHE_KEY), gson);
+			// Under the lock, so a lookup that finishes during the switch can't land in the new account's cache
+			synchronized (this)
+			{
+				xpCache = loaded;
+				loadedProfileKey = profileKey;
+			}
 			rosterHash = 0;
 		}
 		return true;
@@ -437,6 +448,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 			return;
 		}
 
+		groupUpdatedThisRun = null;
 		groupStatus = groupId > 0 ? "Saving starting XP for group refreshes" : null;
 		startIndividualLookups(stale);
 	}
@@ -475,11 +487,13 @@ public class ClanPromotionHelperPlugin extends Plugin
 				}
 
 				int remaining = staleMembers(now).size();
-				groupStatus = "Group: " + updated + " updated" + (remaining > 0 ? ", " + remaining + " to look up" : "");
+				groupUpdatedThisRun = updated;
+				groupStatus = "Group: " + updated + " updated" + (remaining > 0 ? ", looking up " + remaining + "\u2026" : "");
 			}
 			else
 			{
 				log.debug("Wise Old Man group refresh failed: {}", result.getError());
+				groupUpdatedThisRun = null;
 				groupStatus = "Group refresh failed: " + result.getError();
 			}
 
@@ -493,9 +507,13 @@ public class ClanPromotionHelperPlugin extends Plugin
 	{
 		fetchQueue.clear();
 		fetchQueue.addAll(toLookUp);
+		individualTotal = toLookUp.size();
+		individualFailed = 0;
 
 		if (fetchQueue.isEmpty())
 		{
+			// Nothing left after the group request, so its line ("Group: N updated") is already final
+			groupUpdatedThisRun = null;
 			fetching = false;
 			saveCache();
 			return;
@@ -546,6 +564,13 @@ public class ClanPromotionHelperPlugin extends Plugin
 			if (member == null)
 			{
 				fetching = false;
+				// The group line was written before these lookups ran; say how they went now they're done
+				if (groupUpdatedThisRun != null)
+				{
+					groupStatus = "Group: " + groupUpdatedThisRun + " updated, " + individualTotal + " looked up"
+						+ (individualFailed > 0 ? " (" + individualFailed + " failed)" : "");
+					groupUpdatedThisRun = null;
+				}
 			}
 		}
 
@@ -561,7 +586,9 @@ public class ClanPromotionHelperPlugin extends Plugin
 
 	private void lookUp(Member member, int attempt, int generation)
 	{
-		wiseOldManClient.fetchXpGained(member.getName(), member.getJoinDate(), LocalDate.now(),
+		// Wise Old Man rejects a range that starts and ends on the same day, which would fail everyone who
+		// joined today; ending tomorrow also counts XP gained so far today
+		wiseOldManClient.fetchXpGained(member.getName(), member.getJoinDate(), LocalDate.now().plusDays(1),
 			config.apiKey(), config.contact(), result -> onResult(member, attempt, generation, result));
 	}
 
@@ -581,21 +608,24 @@ public class ClanPromotionHelperPlugin extends Plugin
 					result.getRetryAfterSeconds(), TimeUnit.SECONDS);
 				return;
 			}
-		}
 
-		long now = System.currentTimeMillis();
-		String joinDate = member.getJoinDate().toString();
-		// A baseline stays valid for this name and join date, so a failed lookup mustn't throw it away
-		Long savedBaseline = xpCache.baselineFor(member.getName(), member.getJoinDate());
-		if (result.getStatus() == WiseOldManClient.Result.Status.OK)
-		{
-			Long baseline = result.getStartXp() != null ? result.getStartXp() : savedBaseline;
-			xpCache.put(member.getName(), new XpCache.Entry(result.getXpGained(), now, joinDate, null, baseline));
-		}
-		else
-		{
-			log.debug("XP lookup for {} failed: {}", member.getName(), result.getError());
-			xpCache.put(member.getName(), new XpCache.Entry(null, now, joinDate, result.getError(), savedBaseline));
+			// Written while still holding the lock that checked the run, so stopping or switching accounts
+			// can't happen between the check and the write
+			long now = System.currentTimeMillis();
+			String joinDate = member.getJoinDate().toString();
+			// A baseline stays valid for this name and join date, so a failed lookup mustn't throw it away
+			Long savedBaseline = xpCache.baselineFor(member.getName(), member.getJoinDate());
+			if (result.getStatus() == WiseOldManClient.Result.Status.OK)
+			{
+				Long baseline = result.getStartXp() != null ? result.getStartXp() : savedBaseline;
+				xpCache.put(member.getName(), new XpCache.Entry(result.getXpGained(), now, joinDate, null, baseline));
+			}
+			else
+			{
+				log.debug("XP lookup for {} failed: {}", member.getName(), result.getError());
+				xpCache.put(member.getName(), new XpCache.Entry(null, now, joinDate, result.getError(), savedBaseline));
+				individualFailed++;
+			}
 		}
 
 		recompute();

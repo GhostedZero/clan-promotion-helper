@@ -164,7 +164,14 @@ class XpCache
 			Map<String, Entry> loaded = gson.fromJson(json, MAP_TYPE);
 			if (loaded != null)
 			{
-				cache.entries.putAll(loaded);
+				for (Map.Entry<String, Entry> saved : loaded.entrySet())
+				{
+					// The cache can't hold nulls, so skip any a damaged save left behind
+					if (saved.getKey() != null && saved.getValue() != null)
+					{
+						cache.entries.put(saved.getKey(), saved.getValue());
+					}
+				}
 			}
 		}
 		catch (JsonParseException e)

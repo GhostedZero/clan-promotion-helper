@@ -501,6 +501,12 @@ class PromotionPanel extends PluginPanel
 		});
 	}
 
+	/** Restarts the timers that {@link #stop()} stopped, for when the plugin is turned back on. */
+	void start()
+	{
+		SwingUtilities.invokeLater(ageTimer::start);
+	}
+
 	void stop()
 	{
 		SwingUtilities.invokeLater(() ->
