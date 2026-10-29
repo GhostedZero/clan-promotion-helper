@@ -80,6 +80,13 @@ public final class RankRules
 		return ranks;
 	}
 
+	/** Whether a member with this rank can move up the ladder: not true of top ranks or ones the table doesn't have, such as staff. */
+	boolean canBePromoted(String currentRank)
+	{
+		PromotionStatus status = evaluate(currentRank, null, null, LocalDate.MIN).getStatus();
+		return status != PromotionStatus.UNKNOWN_RANK && status != PromotionStatus.MAX_RANK;
+	}
+
 	/**
 	 * Whole months between the join date and today, one fewer if this month's join day hasn't arrived yet.
 	 */

@@ -16,28 +16,30 @@ public class XpCacheTest
 {
 	private static final LocalDate JOINED = LocalDate.of(2024, 3, 31);
 	private static final long NOW = 1_800_000_000_000L;
+	/** Start of the day the player logged in: results from before then are due their daily refresh */
+	private static final long TODAY_START = NOW - TimeUnit.HOURS.toMillis(4);
 	private final Gson gson = new Gson();
 
 	@Test
 	public void unknownMemberNeedsFetch()
 	{
-		assertTrue(new XpCache().needsFetch("2006 Buffon", JOINED, NOW, 6));
+		assertTrue(new XpCache().needsFetch("2006 Buffon", JOINED, TODAY_START));
 	}
 
 	@Test
-	public void freshEntryDoesNotNeedFetch()
+	public void entryFromTodayDoesNotNeedFetch()
 	{
 		XpCache cache = new XpCache();
-		cache.put("2006 Buffon", new XpCache.Entry(80_000_000L, NOW - TimeUnit.HOURS.toMillis(5), JOINED.toString(), null));
-		assertFalse(cache.needsFetch("2006 Buffon", JOINED, NOW, 6));
+		cache.put("2006 Buffon", new XpCache.Entry(80_000_000L, NOW - TimeUnit.HOURS.toMillis(1), JOINED.toString(), null));
+		assertFalse(cache.needsFetch("2006 Buffon", JOINED, TODAY_START));
 	}
 
 	@Test
-	public void staleEntryNeedsFetch()
+	public void entryFromBeforeTodayNeedsFetch()
 	{
 		XpCache cache = new XpCache();
 		cache.put("2006 Buffon", new XpCache.Entry(80_000_000L, NOW - TimeUnit.HOURS.toMillis(6), JOINED.toString(), null));
-		assertTrue(cache.needsFetch("2006 Buffon", JOINED, NOW, 6));
+		assertTrue(cache.needsFetch("2006 Buffon", JOINED, TODAY_START));
 	}
 
 	@Test
@@ -45,7 +47,7 @@ public class XpCacheTest
 	{
 		XpCache cache = new XpCache();
 		cache.put("2006 Buffon", new XpCache.Entry(80_000_000L, NOW, JOINED.toString(), null));
-		assertTrue(cache.needsFetch("2006 Buffon", JOINED.plusDays(1), NOW, 6));
+		assertTrue(cache.needsFetch("2006 Buffon", JOINED.plusDays(1), TODAY_START));
 	}
 
 	@Test
@@ -53,7 +55,7 @@ public class XpCacheTest
 	{
 		XpCache cache = new XpCache();
 		cache.put("Missing", new XpCache.Entry(null, NOW, JOINED.toString(), "Player not found."));
-		assertFalse(cache.needsFetch("Missing", JOINED, NOW, 6));
+		assertFalse(cache.needsFetch("Missing", JOINED, TODAY_START));
 	}
 
 	@Test
@@ -126,7 +128,7 @@ public class XpCacheTest
 		cache.put("2006 Buffon", withBaseline(80_000_000L, 100_000_000L, old));
 
 		// Stale, so it needs refreshing, but the baseline is still there to refresh it with
-		assertTrue(cache.needsFetch("2006 Buffon", JOINED, NOW, 6));
+		assertTrue(cache.needsFetch("2006 Buffon", JOINED, TODAY_START));
 		assertEquals(Long.valueOf(100_000_000L), cache.baselineFor("2006 Buffon", JOINED));
 	}
 
@@ -149,7 +151,7 @@ public class XpCacheTest
 		assertEquals(Long.valueOf(80_000_000L), entry.getXpGained());
 		assertEquals(NOW, entry.getFetchedAt());
 		assertEquals(Long.valueOf(100_000_000L), entry.getBaselineXp());
-		assertFalse(cache.needsFetch("2006 Buffon", JOINED, NOW, 6));
+		assertFalse(cache.needsFetch("2006 Buffon", JOINED, TODAY_START));
 	}
 
 	@Test
@@ -175,8 +177,8 @@ public class XpCacheTest
 		assertFalse(cache.applyGroupXp("ZeroExp", JOINED, exp, NOW));
 		assertFalse(cache.applyGroupXp("BelowBaseline", JOINED, exp, NOW));
 		// Left untouched, so they stay stale and get an individual lookup
-		assertTrue(cache.needsFetch("NotInGroup", JOINED, NOW, 6));
-		assertTrue(cache.needsFetch("BelowBaseline", JOINED, NOW, 6));
+		assertTrue(cache.needsFetch("NotInGroup", JOINED, TODAY_START));
+		assertTrue(cache.needsFetch("BelowBaseline", JOINED, TODAY_START));
 	}
 
 	@Test

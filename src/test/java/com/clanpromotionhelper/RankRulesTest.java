@@ -1,7 +1,9 @@
 package com.clanpromotionhelper;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 import java.time.LocalDate;
 import org.junit.Test;
 
@@ -89,6 +91,16 @@ public class RankRulesTest
 		RankRules custom = RankRules.parse("Bronze:0:0\n\nnot a rank\nSilver:x:1\nGold:1:0.5\n");
 		assertEquals(2, custom.getRanks().size());
 		assertEquals("Gold", custom.nextRankFor("Bronze", LocalDate.of(2026, 9, 1), 500_000L, TODAY));
+	}
+
+	@Test
+	public void onlyLadderRanksBelowTheTopCanBePromoted()
+	{
+		assertTrue(rules.canBePromoted("Recruit"));
+		assertTrue(rules.canBePromoted("admiral"));
+		assertFalse(rules.canBePromoted("Marshal"));
+		assertFalse(rules.canBePromoted("Owner"));
+		assertFalse(rules.canBePromoted(null));
 	}
 
 	@Test

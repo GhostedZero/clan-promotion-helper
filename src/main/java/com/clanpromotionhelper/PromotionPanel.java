@@ -73,11 +73,15 @@ class PromotionPanel extends PluginPanel
 		int memberCount;
 		int dueCount;
 		int checkedCount;
+		/** Members who can be promoted; staff and top ranks aren't looked up */
+		int checkableCount;
 		int failedCount;
 		boolean wiseOldManEnabled;
 		boolean fetching;
 		/** One-line note about the last Wise Old Man group refresh, or null */
 		String groupStatus;
+		/** When Refresh now can next be used (epoch millis) */
+		long refreshAvailableAt;
 	}
 
 	private final JLabel readyValue = new JLabel("0");
@@ -98,7 +102,7 @@ class PromotionPanel extends PluginPanel
 
 	// Only touched on the Swing thread
 	private List<PromotionRow> rows = Collections.emptyList();
-	private Summary summary = new Summary(0, 0, 0, 0, false, false, null);
+	private Summary summary = new Summary(0, 0, 0, 0, 0, false, false, null, 0);
 	private volatile List<PromotionRow> pendingRows = Collections.emptyList();
 	private volatile Summary pendingSummary = summary;
 
@@ -173,7 +177,6 @@ class PromotionPanel extends PluginPanel
 		header.add(gap(8));
 
 		styleButton(refreshButton);
-		refreshButton.setToolTipText("Re-check XP now instead of waiting for the refresh interval");
 		refreshButton.addActionListener(e ->
 		{
 			if (refreshAction != null)
@@ -251,8 +254,26 @@ class PromotionPanel extends PluginPanel
 		});
 
 		// Keep the "5 min ago" text current while nothing else is updating
-		ageTimer = new Timer(30_000, e -> updateLastChecked());
+		ageTimer = new Timer(30_000, e ->
+		{
+			updateLastChecked();
+			updateRefreshButton();
+		});
 		ageTimer.start();
+	}
+
+	/** Swing thread only. Also run by the age timer, so the button comes back on its own once the hour is up. */
+	private void updateRefreshButton()
+	{
+		long wait = summary.getRefreshAvailableAt() - System.currentTimeMillis();
+		String reason = !summary.isWiseOldManEnabled() ? "Turn on Wise Old Man lookups in the settings first"
+			: summary.getMemberCount() == 0 ? "Log in and open your clan to load members first"
+			: summary.isFetching() ? "A refresh is already running"
+			: wait > 0 ? "Can be used once an hour. Available again in " + Math.max(1, (wait + 59_999) / 60_000) + " min"
+			: null;
+		refreshButton.setEnabled(reason == null);
+		refreshButton.setToolTipText(reason != null ? reason
+			: "Re-check XP now. Members are otherwise refreshed once a day, the first time you log in");
 	}
 
 	/** Swing thread only. */
@@ -520,7 +541,7 @@ class PromotionPanel extends PluginPanel
 	private void rebuild()
 	{
 		readyValue.setText(String.valueOf(summary.getDueCount()));
-		checkedValue.setText(summary.getCheckedCount() + "/" + summary.getMemberCount());
+		checkedValue.setText(summary.getCheckedCount() + "/" + summary.getCheckableCount());
 		failedValue.setText(String.valueOf(summary.getFailedCount()));
 		membersValue.setText(String.valueOf(summary.getMemberCount()));
 
@@ -538,7 +559,7 @@ class PromotionPanel extends PluginPanel
 			note.setToolTipText(summary.getGroupStatus());
 		}
 		updateLastChecked();
-		refreshButton.setEnabled(summary.isWiseOldManEnabled() && !summary.isFetching() && summary.getMemberCount() > 0);
+		updateRefreshButton();
 
 		String query = search.getText().trim().toLowerCase(Locale.ROOT);
 		List<PromotionRow> shown = new ArrayList<>();

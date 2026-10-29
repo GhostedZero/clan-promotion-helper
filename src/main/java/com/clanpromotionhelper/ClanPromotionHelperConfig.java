@@ -73,19 +73,6 @@ public interface ClanPromotionHelperConfig extends Config
 		return "";
 	}
 
-	@Range(min = 1, max = 48)
-	@ConfigItem(
-		keyName = "refreshHours",
-		name = "Refresh every (hours)",
-		description = "How long a member's XP is reused before it is looked up again. Wise Old Man asks for intervals of several hours.",
-		section = wiseOldManSection,
-		position = 3
-	)
-	default int refreshHours()
-	{
-		return 6;
-	}
-
 	@Range(min = 0)
 	@ConfigItem(
 		keyName = "womGroupId",
@@ -93,7 +80,7 @@ public interface ClanPromotionHelperConfig extends Config
 		description = "Optional. If your clan has a Wise Old Man group, enter its ID (the number at the end of its web address). "
 			+ "Refreshes then need one request instead of one per member. Leave at 0 to look each member up individually.",
 		section = wiseOldManSection,
-		position = 4
+		position = 3
 	)
 	default int womGroupId()
 	{

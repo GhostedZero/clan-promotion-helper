@@ -41,11 +41,13 @@ class PromotionOverlay extends OverlayPanel
 			.text("Promotions due: " + candidates.size())
 			.build());
 
-		if (plugin.isFetching() || plugin.getCheckedCount() < memberCount)
+		// Out of the members who can be promoted, since staff and top ranks aren't looked up
+		int checkable = plugin.getCheckableCount();
+		if (plugin.isFetching() || plugin.getCheckedCount() < checkable)
 		{
 			panelComponent.getChildren().add(LineComponent.builder()
 				.left("XP checked")
-				.right(plugin.getCheckedCount() + "/" + memberCount)
+				.right(plugin.getCheckedCount() + "/" + checkable)
 				.build());
 		}
 

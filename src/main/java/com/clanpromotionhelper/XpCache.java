@@ -11,7 +11,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -96,14 +95,15 @@ class XpCache
 		return entries.size();
 	}
 
-	boolean needsFetch(String rsn, LocalDate joinDate, long nowMillis, int refreshHours)
+	/** Whether the member has no result for their join date, or only one fetched before {@code refreshBefore}. */
+	boolean needsFetch(String rsn, LocalDate joinDate, long refreshBefore)
 	{
 		Entry entry = get(rsn);
 		if (entry == null || !joinDate.toString().equals(entry.getJoinDate()))
 		{
 			return true;
 		}
-		return nowMillis - entry.getFetchedAt() >= TimeUnit.HOURS.toMillis(refreshHours);
+		return entry.getFetchedAt() < refreshBefore;
 	}
 
 	/** The saved baseline for this member, or null if there isn't one for their current join date. */

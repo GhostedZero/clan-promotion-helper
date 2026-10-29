@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.inject.Provides;
 import java.awt.image.BufferedImage;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -51,7 +52,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 	private static final String CACHE_KEY = "xpCache";
 	/** How often the roster is re-read from clan settings (about 1.8 seconds) */
 	private static final int ROSTER_CHECK_TICKS = 3;
-	/** How often to look for members whose XP is due a refresh, unless the roster just changed (about 30 seconds) */
+	/** How often to look for members with no result yet, such as new members, unless the roster just changed (about 30 seconds) */
 	private static final int STALE_CHECK_TICKS = 50;
 	/**
 	 * Spacing between lookups: about 17 a minute without a key and 80 with one. Wise Old Man's limits are 20 and
@@ -60,7 +61,9 @@ public class ClanPromotionHelperPlugin extends Plugin
 	private static final long DELAY_WITHOUT_KEY_MS = 3_500;
 	private static final long DELAY_WITH_KEY_MS = 750;
 	private static final int MAX_RETRIES = 2;
-	private static final long MANUAL_REFRESH_COOLDOWN_MS = 60_000;
+	/** Refresh now can be used once an hour; saved, so restarting RuneLite doesn't reset it */
+	private static final long MANUAL_REFRESH_COOLDOWN_MS = TimeUnit.HOURS.toMillis(1);
+	private static final String LAST_MANUAL_REFRESH_KEY = "lastManualRefresh";
 	/** Save the cache after this many new results, not after every one */
 	private static final int SAVE_EVERY_RESULTS = 25;
 
@@ -137,6 +140,9 @@ public class ClanPromotionHelperPlugin extends Plugin
 
 	@Getter
 	private volatile int failedCount;
+	/** Members who can be promoted, and so are looked up */
+	@Getter
+	private volatile int checkableCount;
 
 	@Getter
 	private volatile boolean fetching;
@@ -154,9 +160,14 @@ public class ClanPromotionHelperPlugin extends Plugin
 	private int rosterHash;
 	private int ticksUntilRosterCheck;
 	private int ticksUntilStaleCheck;
-	/** Entries fetched before this time count as stale, whatever the refresh interval says */
+	/**
+	 * Results fetched before this are due their daily refresh. It's the start of the day the player logged in and
+	 * stays fixed for the session, so members are refreshed once a day, at the first login that day.
+	 */
+	private volatile long refreshBefore;
+	/** Results fetched before this time count as stale for a Refresh now */
 	private volatile long forceRefreshBefore;
-	private long lastManualRefresh;
+	private volatile long lastManualRefresh;
 
 	private final Deque<Member> fetchQueue = new ArrayDeque<>();
 	private NavigationButton navigationButton;
@@ -180,6 +191,8 @@ public class ClanPromotionHelperPlugin extends Plugin
 	protected void startUp()
 	{
 		rankRules = RankRules.parse(config.rankRequirements());
+		Long savedRefresh = configManager.getConfiguration(ClanPromotionHelperConfig.GROUP, LAST_MANUAL_REFRESH_KEY, Long.class);
+		lastManualRefresh = savedRefresh == null ? 0 : savedRefresh;
 		ticksUntilRosterCheck = 1;
 		overlayManager.add(promotionOverlay);
 		overlayManager.add(memberListHighlightOverlay);
@@ -256,7 +269,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 			recompute();
 		}
 
-		// Refreshes are hours apart, so there's no need to scan every member on every roster check
+		// Refreshes happen once a day, so there's no need to scan every member on every roster check
 		ticksUntilStaleCheck -= ROSTER_CHECK_TICKS;
 		if (rosterChanged || ticksUntilStaleCheck <= 0)
 		{
@@ -278,6 +291,8 @@ public class ClanPromotionHelperPlugin extends Plugin
 			case "rankRequirements":
 				rankRules = RankRules.parse(config.rankRequirements());
 				recompute();
+				// Members whose rank the new table can promote need looking up
+				ticksUntilStaleCheck = 0;
 				break;
 			case "enableWiseOldMan":
 				if (!config.enableWiseOldMan())
@@ -336,6 +351,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 				xpCache = loaded;
 				loadedProfileKey = profileKey;
 			}
+			refreshBefore = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
 			rosterHash = 0;
 		}
 		return true;
@@ -366,25 +382,32 @@ public class ClanPromotionHelperPlugin extends Plugin
 		groupStatus = null;
 		checkedCount = 0;
 		failedCount = 0;
+		checkableCount = 0;
 		xpCache = new XpCache();
 		loadedProfileKey = null;
 		rosterHash = 0;
 		promotionPanel.update(rows, summary());
 	}
 
-	private List<Member> staleMembers(long now)
+	private List<Member> staleMembers()
 	{
-		int refreshHours = config.refreshHours();
+		RankRules rules = rankRules;
 		// With a group, a forced refresh can cover everyone cheaply. Without one it would mean one request
 		// per member, so it only retries members who have no result yet or whose lookup failed.
 		boolean everyone = config.womGroupId() > 0;
 		List<Member> stale = new ArrayList<>();
 		for (Member member : members)
 		{
+			// Staff and top ranks can't be promoted, so their XP would never be used
+			if (!rules.canBePromoted(member.getRank()))
+			{
+				continue;
+			}
+
 			XpCache.Entry entry = xpCache.get(member.getName());
 			boolean forced = entry != null && entry.getFetchedAt() < forceRefreshBefore
 				&& (everyone || entry.getXpGained() == null);
-			if (forced || xpCache.needsFetch(member.getName(), member.getJoinDate(), now, refreshHours))
+			if (forced || xpCache.needsFetch(member.getName(), member.getJoinDate(), refreshBefore))
 			{
 				stale.add(member);
 			}
@@ -392,7 +415,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 		return stale;
 	}
 
-	/** The sidebar's Refresh button: re-checks XP now. Ignored while a refresh is running or just after one. */
+	/** The sidebar's Refresh button: re-checks XP now. Ignored while a refresh is running or within an hour of the last one. */
 	private void requestRefresh()
 	{
 		synchronized (this)
@@ -403,14 +426,14 @@ public class ClanPromotionHelperPlugin extends Plugin
 				return;
 			}
 
-			if (now - lastManualRefresh < MANUAL_REFRESH_COOLDOWN_MS)
+			if (now < refreshAvailableAt())
 			{
-				groupStatus = "Please wait before refreshing again";
-				recompute();
+				// The button is disabled until then, so this only catches a click that raced the update
 				return;
 			}
 
 			lastManualRefresh = now;
+			configManager.setConfiguration(ClanPromotionHelperConfig.GROUP, LAST_MANUAL_REFRESH_KEY, now);
 			forceRefreshBefore = now;
 			groupStatus = config.womGroupId() > 0 ? null : "Retrying members with no result";
 		}
@@ -431,7 +454,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 			return;
 		}
 
-		List<Member> stale = staleMembers(System.currentTimeMillis());
+		List<Member> stale = staleMembers();
 		if (stale.isEmpty())
 		{
 			return;
@@ -486,7 +509,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 					}
 				}
 
-				int remaining = staleMembers(now).size();
+				int remaining = staleMembers().size();
 				groupUpdatedThisRun = updated;
 				groupStatus = "Group: " + updated + " updated" + (remaining > 0 ? ", looking up " + remaining + "\u2026" : "");
 			}
@@ -497,7 +520,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 				groupStatus = "Group refresh failed: " + result.getError();
 			}
 
-			startIndividualLookups(staleMembers(now));
+			startIndividualLookups(staleMembers());
 		}
 		recompute();
 	}
@@ -658,10 +681,17 @@ public class ClanPromotionHelperPlugin extends Plugin
 		Map<String, String> currentRanks = new HashMap<>();
 		int checked = 0;
 		int failed = 0;
+		int checkable = 0;
 
 		for (Member member : members)
 		{
-			XpCache.Entry entry = cache.get(member.getName());
+			// Staff and top ranks aren't looked up, so a result saved before that (or under an older rank table) is ignored
+			boolean promotable = rules.canBePromoted(member.getRank());
+			if (promotable)
+			{
+				checkable++;
+			}
+			XpCache.Entry entry = promotable ? cache.get(member.getName()) : null;
 			Long xp = entry == null ? null : entry.getXpGained();
 			RankRules.Evaluation evaluation = rules.evaluate(member.getRank(), member.getJoinDate(), xp, today);
 
@@ -709,13 +739,19 @@ public class ClanPromotionHelperPlugin extends Plugin
 		rows = Collections.unmodifiableList(allRows);
 		checkedCount = checked;
 		failedCount = failed;
+		checkableCount = checkable;
 		promotionPanel.update(rows, summary());
 	}
 
 	private PromotionPanel.Summary summary()
 	{
-		return new PromotionPanel.Summary(members.size(), candidates.size(), checkedCount, failedCount,
-			config.enableWiseOldMan(), fetching, groupStatus);
+		return new PromotionPanel.Summary(members.size(), candidates.size(), checkedCount, checkableCount, failedCount,
+			config.enableWiseOldMan(), fetching, groupStatus, refreshAvailableAt());
+	}
+
+	private long refreshAvailableAt()
+	{
+		return lastManualRefresh + MANUAL_REFRESH_COOLDOWN_MS;
 	}
 
 	private static Set<String> splitList(String value, boolean names)

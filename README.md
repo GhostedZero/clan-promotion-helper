@@ -26,7 +26,7 @@ In the plugin's settings:
 4. **Rank requirements:** check the table below matches your clan.
 5. **Wise Old Man group ID** (optional): if your clan has a [group](https://wiseoldman.net/groups), enter its ID (the number at the end of its web address). After the first fill, a refresh then takes one request for the whole group instead of one per member. If the group request fails, the plugin falls back to looking members up one by one.
 
-A clan of about 500 members takes around 28 minutes to check without an API key and about 6 minutes with one. Results are saved per account and only refreshed after the refresh interval (6 hours by default), so later logins are quick.
+A clan of about 500 members takes around 28 minutes to check without an API key and about 6 minutes with one. Results are saved per account and refreshed once a day, the first time you log in that day, so later logins are quick. Members whose rank isn't in your rank table (such as staff) and members at the top rank can't be promoted, so they aren't looked up.
 
 ## Sidebar
 
@@ -35,7 +35,7 @@ Click the plugin's icon in RuneLite's sidebar:
 - Tabs for **Ready**, **Later** (not ready yet), **Failed** and **All**, plus a name search.
 - The list of members is limited to 200 results so you may need to use the search function to find specific members in larger clans.
 - Each member shows their rank, months in the clan, XP gained and progress towards the next rank.
-- **Refresh now** re-checks XP straight away. With a group ID set it refreshes everyone with one request; without one it only retries members with no result or a failed lookup.
+- **Refresh now** re-checks XP straight away and can be used once an hour. With a group ID set it refreshes everyone with one request; without one it only retries members with no result or a failed lookup.
 
 ## Rank requirements
 
@@ -70,7 +70,7 @@ Like any web request, this shows your IP address to Wise Old Man. Results are sa
 
 ## Notes
 
-- A failed lookup, for example for a player Wise Old Man doesn't track, is never treated as 0 XP. It shows under Failed and is retried after the refresh interval.
+- A failed lookup, for example for a player Wise Old Man doesn't track, is never treated as 0 XP. It shows under Failed and is retried at the next day's first login, or with Refresh now.
 - XP gained only counts from when Wise Old Man first tracked the player, so members who weren't tracked before joining may show less than they really gained.
 
 ## Credits
