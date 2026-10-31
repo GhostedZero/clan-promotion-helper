@@ -23,7 +23,7 @@ In the plugin's settings:
 1. **Look up XP on Wise Old Man:** turn this on. It's off by default because it sends requests to a third-party site.
 2. **Contact name:** your Discord name. It's sent with each lookup so Wise Old Man can reach you if needed about your usage.
 3. **API key** (optional): raises Wise Old Man's limit from 20 to 100 lookups a minute. Ask for one on the [Wise Old Man Discord](https://wiseoldman.net/discord).
-4. **Rank requirements:** check the table below matches your clan.
+4. **Rank requirements:** check the table below matches your clan, or set it up with **Edit ranks** in the sidebar.
 5. **Wise Old Man group ID** (optional): if your clan has a [group](https://wiseoldman.net/groups), enter its ID (the number at the end of its web address). After the first fill, a refresh then takes one request for the whole group instead of one per member. If the group request fails, the plugin falls back to looking members up one by one.
 
 A clan of about 500 members takes around 28 minutes to check without an API key and about 6 minutes with one. Results are saved per account and refreshed once a day, the first time you log in that day, so later logins are quick. Members whose rank isn't in your rank table (such as staff) and members at the top rank can't be promoted, so they aren't looked up.
@@ -36,10 +36,11 @@ Click the plugin's icon in RuneLite's sidebar:
 - The list of members is limited to 200 results so you may need to use the search function to find specific members in larger clans.
 - Each member shows their rank, months in the clan, XP gained and progress towards the next rank.
 - **Refresh now** re-checks XP straight away and can be used once an hour. With a group ID set it refreshes everyone with one request; without one it only retries members with no result or a failed lookup.
+- **Edit ranks** opens an editor for the rank ladder: add, remove and reorder ranks and set each one's months and XP. **Fill from clan** lists your clan's in-game ranks in order and keeps the requirements you've already set. Nothing changes until you press Save.
 
 ## Rank requirements
 
-One rank per line, lowest first, as `Rank:months:XP in millions`. This is an example ladder; replace it with your clan's own rank titles and requirements:
+Use **Edit ranks** in the sidebar, or type one rank per line in the settings, lowest first, as `Rank:months:XP in millions`. This is an example ladder; replace it with your clan's own rank titles and requirements:
 
 ```
 Thief:0:0
@@ -76,3 +77,5 @@ Like any web request, this shows your IP address to Wise Old Man. Results are sa
 ## Credits
 
 The member-list highlighting follows the approach of the [Clan Rank Helper](https://github.com/homer2011/clan-rank-helper) plugin (BSD-2).
+
+The rank editor is adapted from one contributed by [ItsMajorSpace](https://github.com/ItsMajorSpace) in [pull request #1](https://github.com/GhostedZero/clan-promotion-helper/pull/1).

@@ -94,6 +94,24 @@ public class RankRulesTest
 	}
 
 	@Test
+	public void skippedLinesAreReportedWithTheirLineNumber()
+	{
+		RankRules custom = RankRules.parse("Bronze:0:0\n\nnot a rank\nSilver:x:1\nGold:-1:0.5\nPlatinum:1:NaN");
+		assertEquals(1, custom.getRanks().size());
+		assertEquals(4, custom.getErrors().size());
+		assertTrue(custom.getErrors().get(0).startsWith("Line 3 (not a rank)"));
+		assertTrue(custom.getErrors().get(1).startsWith("Line 4 (Silver:x:1)"));
+		assertTrue(custom.getErrors().get(2).endsWith("numbers can't be negative"));
+		assertTrue(custom.getErrors().get(3).startsWith("Line 6"));
+	}
+
+	@Test
+	public void defaultTableHasNoErrors()
+	{
+		assertTrue(rules.getErrors().isEmpty());
+	}
+
+	@Test
 	public void onlyLadderRanksBelowTheTopCanBePromoted()
 	{
 		assertTrue(rules.canBePromoted("Recruit"));

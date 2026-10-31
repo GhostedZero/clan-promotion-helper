@@ -26,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.clan.ClanMember;
+import net.runelite.api.clan.ClanRank;
 import net.runelite.api.clan.ClanSettings;
 import net.runelite.api.clan.ClanTitle;
 import net.runelite.api.events.GameStateChanged;
@@ -107,6 +108,9 @@ public class ClanPromotionHelperPlugin extends Plugin
 	private PromotionPanel promotionPanel;
 
 	@Inject
+	private RulesEditorPanel rulesEditor;
+
+	@Inject
 	private PromotionOverlay promotionOverlay;
 
 	@Inject
@@ -143,6 +147,10 @@ public class ClanPromotionHelperPlugin extends Plugin
 	/** Members who can be promoted, and so are looked up */
 	@Getter
 	private volatile int checkableCount;
+
+	/** The clan's rank titles members can be promoted through (below administrator), lowest first, for the rank editor */
+	@Getter
+	private volatile List<String> ladderTitles = Collections.emptyList();
 
 	@Getter
 	private volatile boolean fetching;
@@ -206,6 +214,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 		clientToolbar.addNavigation(navigationButton);
 		promotionPanel.start();
 		promotionPanel.setRefreshAction(() -> executor.submit(this::requestRefresh));
+		rulesEditor.setClanRanks(this::getLadderTitles);
 		recompute();
 	}
 
@@ -312,6 +321,20 @@ public class ClanPromotionHelperPlugin extends Plugin
 
 	private List<Member> readRoster(ClanSettings settings)
 	{
+		List<String> ladder = new ArrayList<>();
+		Set<String> seen = new HashSet<>();
+		// Ranks 0 up to administrator are the ones members are promoted through; guests (-1) aren't members, and
+		// administrator and up are appointed. Unused rank numbers have no title.
+		for (int i = 0; i < ClanRank.ADMINISTRATOR.getRank(); i++)
+		{
+			ClanTitle title = settings.titleForRank(new ClanRank(i));
+			if (title != null && title.getName() != null && seen.add(title.getName().toLowerCase(Locale.ROOT)))
+			{
+				ladder.add(title.getName());
+			}
+		}
+		ladderTitles = Collections.unmodifiableList(ladder);
+
 		List<Member> roster = new ArrayList<>();
 		for (ClanMember clanMember : settings.getMembers())
 		{
@@ -383,6 +406,7 @@ public class ClanPromotionHelperPlugin extends Plugin
 		checkedCount = 0;
 		failedCount = 0;
 		checkableCount = 0;
+		ladderTitles = Collections.emptyList();
 		xpCache = new XpCache();
 		loadedProfileKey = null;
 		rosterHash = 0;

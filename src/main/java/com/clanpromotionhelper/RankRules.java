@@ -36,48 +36,85 @@ public final class RankRules
 	}
 
 	private final List<Rank> ranks;
+	private final List<String> errors;
 
-	private RankRules(List<Rank> ranks)
+	private RankRules(List<Rank> ranks, List<String> errors)
 	{
 		this.ranks = Collections.unmodifiableList(ranks);
+		this.errors = Collections.unmodifiableList(errors);
 	}
 
 	/**
 	 * Parses one rank per line as {@code Name:months:xpMillions}, lowest rank first.
-	 * Blank and malformed lines are skipped.
+	 * Blank lines are skipped; malformed ones are skipped and reported by {@link #getErrors}.
 	 */
 	static RankRules parse(String table)
 	{
 		List<Rank> ranks = new ArrayList<>();
+		List<String> errors = new ArrayList<>();
 		if (table == null)
 		{
-			return new RankRules(ranks);
+			return new RankRules(ranks, errors);
 		}
 
-		for (String line : table.split("\\r?\\n"))
+		String[] lines = table.split("\\r?\\n");
+		for (int i = 0; i < lines.length; i++)
 		{
-			String[] parts = line.split(":");
-			if (parts.length != 3 || parts[0].trim().isEmpty())
+			String line = lines[i].trim();
+			if (line.isEmpty())
 			{
 				continue;
 			}
 
-			try
+			String error = null;
+			String[] parts = line.split(":");
+			if (parts.length != 3 || parts[0].trim().isEmpty())
 			{
-				ranks.add(new Rank(parts[0].trim(), Integer.parseInt(parts[1].trim()), Double.parseDouble(parts[2].trim())));
+				error = "expected Rank:months:XP";
 			}
-			catch (NumberFormatException e)
+			else
 			{
-				// Skip lines whose numbers don't parse
+				try
+				{
+					int months = Integer.parseInt(parts[1].trim());
+					double xp = Double.parseDouble(parts[2].trim());
+					if (months < 0 || xp < 0)
+					{
+						error = "numbers can't be negative";
+					}
+					else if (Double.isNaN(xp) || Double.isInfinite(xp))
+					{
+						error = "a number doesn't parse";
+					}
+					else
+					{
+						ranks.add(new Rank(parts[0].trim(), months, xp));
+					}
+				}
+				catch (NumberFormatException e)
+				{
+					error = "a number doesn't parse";
+				}
+			}
+
+			if (error != null)
+			{
+				errors.add("Line " + (i + 1) + " (" + line + "): " + error);
 			}
 		}
 
-		return new RankRules(ranks);
+		return new RankRules(ranks, errors);
 	}
 
 	List<Rank> getRanks()
 	{
 		return ranks;
+	}
+
+	/** One message per line {@link #parse} skipped, saying which line and why. */
+	List<String> getErrors()
+	{
+		return errors;
 	}
 
 	/** Whether a member with this rank can move up the ladder: not true of top ranks or ones the table doesn't have, such as staff. */

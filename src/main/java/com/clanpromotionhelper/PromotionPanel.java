@@ -2,6 +2,7 @@ package com.clanpromotionhelper;
 
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
@@ -62,9 +63,9 @@ class PromotionPanel extends PluginPanel
 	/** Rows drawn at once; the tabs and search box narrow a larger clan down */
 	private static final int MAX_ROWS = 200;
 	/** Colours and spacing in the style of RuneLite's other plugin panels (e.g. Flipping Utilities) */
-	private static final Color PANEL_BACKGROUND = ColorScheme.DARK_GRAY_COLOR;
-	private static final Color CARD_BACKGROUND = new Color(27, 27, 27);
-	private static final Color CARD_BORDER = ColorScheme.DARKER_GRAY_COLOR.darker();
+	static final Color PANEL_BACKGROUND = ColorScheme.DARK_GRAY_COLOR;
+	static final Color CARD_BACKGROUND = new Color(27, 27, 27);
+	static final Color CARD_BORDER = ColorScheme.DARKER_GRAY_COLOR.darker();
 	private static final String[] TABS = {"Ready", "Later", "Failed", "All"};
 
 	@Value
@@ -92,6 +93,9 @@ class PromotionPanel extends PluginPanel
 	private final JLabel lastChecked = new JLabel(" ", SwingConstants.CENTER);
 	private final Timer ageTimer;
 	private final JButton refreshButton = new JButton("Refresh now");
+	private final JButton editRanksButton = new JButton("Edit ranks");
+	/** Switches the sidebar between the member list and the rank editor */
+	private final CardLayout views = new CardLayout();
 	private final IconTextField search = new IconTextField();
 	private final JPanel list = new ViewportWidthPanel();
 	private final Timer rebuildTimer;
@@ -107,12 +111,18 @@ class PromotionPanel extends PluginPanel
 	private volatile Summary pendingSummary = summary;
 
 	@Inject
-	PromotionPanel()
+	PromotionPanel(RulesEditorPanel rulesEditor)
 	{
 		super(false);
-		setLayout(new BorderLayout());
+		setLayout(views);
 		setBackground(PANEL_BACKGROUND);
 		setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+
+		JPanel main = new JPanel(new BorderLayout());
+		main.setBackground(PANEL_BACKGROUND);
+		add(main, "list");
+		add(rulesEditor, "editor");
+		rulesEditor.setOnClose(() -> views.show(this, "list"));
 
 		JPanel header = new JPanel();
 		header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
@@ -184,7 +194,19 @@ class PromotionPanel extends PluginPanel
 				refreshAction.run();
 			}
 		});
-		header.add(refreshButton);
+		styleButton(editRanksButton);
+		editRanksButton.setToolTipText("Edit the rank ladder: each rank's months in the clan and XP needed");
+		editRanksButton.addActionListener(e ->
+		{
+			rulesEditor.open();
+			views.show(this, "editor");
+		});
+		JPanel buttons = new JPanel(new GridLayout(1, 2, 6, 0));
+		buttons.setOpaque(false);
+		buttons.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+		buttons.add(refreshButton);
+		buttons.add(editRanksButton);
+		header.add(buttons);
 		header.add(gap(10));
 
 		JPanel overview = new JPanel(new GridLayout(2, 2, 6, 6));
@@ -213,21 +235,12 @@ class PromotionPanel extends PluginPanel
 			}
 		}
 		note.setAlignmentX(Component.LEFT_ALIGNMENT);
-		add(header, BorderLayout.NORTH);
+		main.add(header, BorderLayout.NORTH);
 
 		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
 		list.setBackground(PANEL_BACKGROUND);
 		list.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 7));
-		JScrollPane scroll = new JScrollPane(list);
-		scroll.setBackground(PANEL_BACKGROUND);
-		scroll.getViewport().setBackground(PANEL_BACKGROUND);
-		scroll.setBorder(BorderFactory.createEmptyBorder());
-		scroll.setViewportBorder(null);
-		scroll.getVerticalScrollBar().setPreferredSize(new Dimension(2, 0));
-		scroll.getVerticalScrollBar().setBackground(PANEL_BACKGROUND);
-		scroll.getVerticalScrollBar().setUI(new DarkScrollBarUI());
-		scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-		add(scroll, BorderLayout.CENTER);
+		main.add(darkScroll(list), BorderLayout.CENTER);
 
 		rebuildTimer = new Timer(REBUILD_DELAY_MS, e ->
 		{
@@ -361,7 +374,7 @@ class PromotionPanel extends PluginPanel
 	}
 
 	/** A panel that is exactly as wide as the scroll pane's viewport, so wide rows are cut off instead of overflowing. */
-	private static final class ViewportWidthPanel extends JPanel implements Scrollable
+	static final class ViewportWidthPanel extends JPanel implements Scrollable
 	{
 		@Override
 		public Dimension getPreferredScrollableViewportSize()
@@ -428,8 +441,23 @@ class PromotionPanel extends PluginPanel
 		}
 	}
 
+	/** A vertical-only scroll pane with the thin dark scroll bar, for the member list and the rank editor. */
+	static JScrollPane darkScroll(JComponent content)
+	{
+		JScrollPane scroll = new JScrollPane(content);
+		scroll.setBackground(PANEL_BACKGROUND);
+		scroll.getViewport().setBackground(PANEL_BACKGROUND);
+		scroll.setBorder(BorderFactory.createEmptyBorder());
+		scroll.setViewportBorder(null);
+		scroll.getVerticalScrollBar().setPreferredSize(new Dimension(2, 0));
+		scroll.getVerticalScrollBar().setBackground(PANEL_BACKGROUND);
+		scroll.getVerticalScrollBar().setUI(new DarkScrollBarUI());
+		scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+		return scroll;
+	}
+
 	/** A vertical gap that is left-aligned like the rest, since a centre-aligned one would shift the others sideways. */
-	private static Component gap(int height)
+	static Component gap(int height)
 	{
 		JComponent filler = (JComponent) Box.createVerticalStrut(height);
 		filler.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -468,7 +496,7 @@ class PromotionPanel extends PluginPanel
 	}
 
 	/** A flat dark button, like the Update and Open Profile buttons in other panels. */
-	private static void styleButton(JButton button)
+	static void styleButton(JButton button)
 	{
 		button.setFocusPainted(false);
 		button.setBackground(ColorScheme.DARKER_GRAY_COLOR);
